@@ -47,11 +47,13 @@ def analyze_transcript_with_gemini(transcript_path: str):
     # We want to create '.../Question/Simulated_Topic_For_Testing/summary/video_id_123/'
     question_base_dir = transcript_path_obj.parent.parent # This gets to 'Simulated_Topic_For_Testing'
     summary_base_dir = question_base_dir / 'summary'
-    output_dir = summary_base_dir / video_id
-    os.makedirs(output_dir, exist_ok=True)
+    # No need for an intermediate directory named after video_id
+    # The output file will be directly in the summary directory
+    analysis_file_path = summary_base_dir / f"{video_id}.txt"
+    # Ensure the summary directory exists (this might be redundant if main.py already creates it)
+    os.makedirs(summary_base_dir, exist_ok=True)
 
     # Save analysis
-    analysis_file_path = output_dir / 'analysis.txt'
 
     with open(analysis_file_path, 'w', encoding='utf-8') as f:
         f.write(analysis_text)

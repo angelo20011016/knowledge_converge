@@ -25,7 +25,7 @@ def combine_and_extract_final_info(question_base_dir: str):
 
     combined_analysis_content = []
     # Find all analysis.txt files in subdirectories of summary_base_dir
-    for analysis_file in summary_base_dir.glob('*/analysis.txt'):
+    for analysis_file in summary_base_dir.glob('*.txt'):
         try:
             with open(analysis_file, 'r', encoding='utf-8') as f:
                 combined_analysis_content.append(f.read())

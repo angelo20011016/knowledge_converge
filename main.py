@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # --- Configuration for AI Processing ---
 # Set to True to simulate AI processing without making actual API calls.
 # Set to False to enable actual AI processing (requires GEMINI_API_KEY in .env).
-SIMULATE_AI_PROCESSING = True
+SIMULATE_AI_PROCESSING = False
 
 # --- Add subdirectories to Python path ---
 current_dir = os.path.dirname(__file__)
@@ -201,20 +201,6 @@ def main():
                     video['transcript_path'] = transcript_path
                     print(f"轉錄完成，影片：{video['title']}")
 
-                    # --- AI 處理：分析單個轉錄稿 (音訊 STT) ---
-                    if not SIMULATE_AI_PROCESSING:
-                        print(f"正在呼叫 analyze_transcript_with_gemini 處理：{transcript_path}...")
-                        analyze_transcript_with_gemini(transcript_path)
-                    else:
-                        print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理：{transcript_path}")
-                        # 模擬資料夾建立和檔案寫入
-                        simulated_video_id = Path(transcript_path).stem
-                        simulated_summary_dir = question_dir / 'summary' / simulated_video_id
-                        os.makedirs(simulated_summary_dir, exist_ok=True)
-                        with open(simulated_summary_dir / 'analysis.txt', 'w', encoding='utf-8') as f:
-                            f.write(f"[模擬] 針對 {simulated_video_id} 的分析 (音訊 STT)")
-                        print(f"[模擬] 分析結果已儲存至：{simulated_summary_dir / 'analysis.txt'}")
-
                 else:
                     video['transcription_failed'] = True
                     print(f"轉錄失敗，影片：{video['title']}")
@@ -224,7 +210,55 @@ def main():
         else:
             print(f"Skipping transcription for {video['title']}: No audio path found.")
 
+    # --- AI 處理：分析單個轉錄稿 (STT 轉錄後) ---
+    print("\n--- Performing AI Analysis for STT Transcripts ---")
+    for i, video in enumerate(videos_to_process):
+        # Check if transcript_path exists and if it's an STT transcript (not official CC)
+        # A simple way to check if it's an STT transcript is if 'audio_path' exists for the video
+        # and if 'transcript_path' is set, and if it hasn't been analyzed yet.
+        # We can check if an analysis file already exists for this video.
+        
+        if video.get('transcript_path') and video.get('audio_path'): # It's an STT transcript
+            transcript_path = video['transcript_path']
+            video_id = Path(transcript_path).stem
+            analysis_file_path = question_dir / 'summary' / f"{video_id}.txt"
+
+            if not analysis_file_path.exists(): # Only analyze if not already analyzed
+                if not SIMULATE_AI_PROCESSING:
+                    print(f"正在呼叫 analyze_transcript_with_gemini 處理 (STT): {transcript_path}...")
+                    analyze_transcript_with_gemini(transcript_path)
+                else:
+                    print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理 (STT): {transcript_path}")
+                    # Simulate file creation for consistency
+                    with open(analysis_file_path, 'w', encoding='utf-8') as f:
+                        f.write(f"[模擬] 針對 {video_id} 的分析 (音訊 STT)")
+                    print(f"[模擬] 分析結果已儲存至：{analysis_file_path}")
+            else:
+                print(f"分析檔案已存在，跳過 (STT): {analysis_file_path}")
+
     # --- AI 處理：合併並提取最終資訊 ---
+    # --- Consistency Check ---
+    print("\n--- Performing Consistency Check ---")
+    processed_video_count = 0
+    for video in videos_to_process:
+        if video.get('transcript_path') and Path(video['transcript_path']).is_file():
+            processed_video_count += 1
+        else:
+            print(f"Warning: Video '{video.get('title', video['video_id'])}' did not produce a valid transcript.")
+
+    summary_dir = question_dir / 'summary'
+    analysis_files = list(summary_dir.glob('*.txt'))
+    analysis_file_count = len(analysis_files)
+
+    print(f"Total videos processed with transcripts: {processed_video_count}")
+    print(f"Total individual AI analysis files found: {analysis_file_count}")
+
+    if processed_video_count != analysis_file_count:
+        print("WARNING: Mismatch between processed videos and analysis files!")
+        # You can add more detailed logging here to identify which files are missing
+    else:
+        print("Consistency check passed: All processed videos have corresponding analysis files.")
+
     if not SIMULATE_AI_PROCESSING:
         print(f"正在呼叫 combine_and_extract_final_info 處理：{question_dir}...")
         combine_and_extract_final_info(str(question_dir))
