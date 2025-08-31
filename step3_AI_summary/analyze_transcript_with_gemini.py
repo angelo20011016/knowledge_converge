@@ -49,7 +49,7 @@ def analyze_transcript_with_gemini(transcript_path: str):
     summary_base_dir = question_base_dir / 'summary'
     # No need for an intermediate directory named after video_id
     # The output file will be directly in the summary directory
-    analysis_file_path = summary_base_dir / f"{video_id}.txt"
+    analysis_file_path = summary_base_dir / f"{video_id}_summary.txt"
     # Ensure the summary directory exists (this might be redundant if main.py already creates it)
     os.makedirs(summary_base_dir, exist_ok=True)
 

@@ -27,7 +27,7 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None) -> str | 
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
+        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',

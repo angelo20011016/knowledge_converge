@@ -1,65 +1,210 @@
-# 知識匯聚專案
+# Video Knowledge Convergence Project
+
+## Project Overview
+
+The "Video Knowledge Convergence" project is an intelligent system designed to extract and synthesize knowledge from YouTube videos based on user-defined queries. It automates the entire pipeline from video discovery to AI-powered content analysis and summarization, providing users with refined, actionable information.
+
+## Features
+
+*   **Intelligent Video Search:** Finds relevant YouTube videos based on a user query, filtering by criteria like video length and sorting by view count.
+*   **Multi-source Transcription:** Prioritizes downloading official subtitles (Closed Captions) for accuracy. If not available, it downloads video audio and performs Speech-to-Text (STT) transcription.
+*   **AI-Powered Content Analysis:** Utilizes the Google Gemini AI model to analyze individual video transcripts, extracting useful information.
+*   **Knowledge Synthesis:** Combines analyses from multiple videos and performs a final AI-driven extraction to synthesize key insights.
+*   **Real-time Status Tracking:** Provides live updates on the analysis progress directly within the frontend user interface.
+*   **User-Friendly Interface:** A React-based frontend with a clean, elegant design (inspired by "notebook lm") for easy interaction.
+
+## Project Structure
+
+```
+.
+├───.gitignore
+├───app.py                  # Flask backend application, handles API requests and serves status.
+├───main.py                 # Core orchestration logic (run_analysis function).
+├───README.md               # This file.
+├───status.py               # Global status variable for inter-module communication.
+├───audio_multi_process/    # Modules for audio processing.
+│   ├───audio_spliter.py    # (Currently not used in main.py) Splits audio files.
+│   └───parallel_transcriber.py # (Currently not used in main.py) Parallel transcription.
+├───frontend/               # React frontend application.
+│   ├───public/             # Static assets.
+│   └───src/                # React components (App.js is main).
+├───modules/                # Core Python utility modules.
+│   ├───cleantranscription.py # Cleans raw transcript text.
+│   ├───download_YTvideo2wav.py # Downloads YouTube video audio to WAV.
+│   ├───transcribe_wav.py   # Single-threaded audio transcription (faster-whisper).
+│   ├───yt_get_cc.py        # Downloads YouTube official subtitles.
+│   └───yt_transcription_re.py # Cleans VTT subtitle files.
+├───Question/               # Output directory for query-specific results.
+├───step1_get_10url/        # Modules for video URL acquisition.
+│   └───get_top_10_watched.py # Uses YouTube API to get top videos.
+└───step3_AI_summary/       # Modules for AI analysis and summarization.
+    ├───analyze_transcript_with_gemini.py # Analyzes single transcripts with Gemini.
+    ├───combine_and_extract_final_info.py # Combines analyses and extracts final info.
+    └───combine_transcripts.py # (Currently not used in main.py) Combines multiple transcripts.
+```
+
+## Project Flow Diagram
+
+詳細的專案流程圖請參考 [docs/flowchart.md](docs/flowchart.md)。
+
+## Setup and Running
+
+### Prerequisites
+
+*   Python 3.9+
+*   Node.js & npm
+*   FFmpeg (for audio conversion, ensure it's in your system PATH)
+*   Google YouTube Data API Key (set as `YOUTUBE_API_KEY` environment variable)
+*   Google Gemini API Key (set as `GEMINI_API_KEY` environment variable)
+
+### Backend Setup
+
+1.  **Install Python dependencies:**
+    ```bash
+    # 影片知識匯聚專案
 
 ## 專案概述
-本專案旨在根據使用者提供的主題，自動化從 YouTube 影片中收集資訊的過程。它涉及搜尋相關影片、提取或轉錄其內容，然後利用 Google 的 Gemini AI 模型進行深入分析、摘要和關鍵資訊提取。最終目標是從多個影片來源為給定主題提供一個整合且有用的摘要。
 
-## 工作流程詳解
+「影片知識匯聚」專案是一個智慧系統，旨在根據使用者定義的查詢，從 YouTube 影片中提取和整合知識。它自動化了從影片發現到 AI 驅動的內容分析和摘要的整個流程，為使用者提供精煉、可操作的資訊。
 
-`main.py` 腳本協調以下主要步驟：
+## 功能特色
 
-### 步驟 1：URL 檢索 (`step1_get_10url/get_top_10_watched.py`)
--   **功能：** 根據使用者輸入的中文主題查詢，搜尋 YouTube 上的相關影片。如果需要，查詢會被翻譯成英文以擴大搜尋範圍。
--   **輸入：** 使用者提供的中文主題。
--   **輸出：** 影片 URL 和元資料會儲存到 `Question/<query_folder_name>/urls.json`。同時，會在 `Question/<query_folder_name>/` 下建立 `subs/`、`audio_files/`、`transcripts/` 和 `summary/` 等必要目錄。
+*   **智慧影片搜尋：** 根據使用者查詢尋找相關的 YouTube 影片，並根據影片長度等標準進行篩選，按觀看次數排序。
+*   **多來源轉錄：** 優先下載官方字幕（Closed Captions）以確保準確性。如果不可用，則下載影片音訊並執行語音轉文字（STT）轉錄。
+*   **AI 驅動的內容分析：** 利用 Google Gemini AI 模型分析單個影片轉錄稿，提取有用資訊。
+*   **知識整合：** 合併來自多個影片的分析結果，並執行最終的 AI 驅動提取，以整合關鍵見解。
+*   **即時狀態追蹤：** 在前端使用者介面中直接提供分析進度的即時更新。
+*   **使用者友善介面：** 基於 React 的前端，設計簡潔優雅（靈感來自「notebook lm」），便於互動。
 
-### 步驟 2：轉錄稿生成（官方 CC 與音訊 STT）
-對於步驟 1 中識別的每個影片，系統會嘗試生成轉錄稿。
+## 專案結構
 
-#### 2.1 嘗試官方字幕 (`modules/yt_get_cc.py` & `modules/yt_transcription_re.py`)
--   **功能：** 系統首先嘗試使用 `yt_get_cc.get_subtitle` 下載影片的官方字幕。如果成功，VTT 檔案會使用 `yt_transcription_re.clean_vtt_file` 進行清理和處理。
--   **觸發：** 在 `main.py` 中，針對每個影片。
--   **輸出：** 清理後的轉錄稿路徑會儲存在 `video['transcript_path']` 中。成功獲取官方字幕後，會立即觸發單個轉錄稿的 AI 分析（步驟 3）。
+```
+.
+├───.gitignore
+├───app.py                  # Flask 後端應用程式，處理 API 請求並提供狀態。
+├───main.py                 # 核心協調邏輯 (run_analysis 函數)。
+├───README.md               # 本檔案。
+├───status.py               # 用於模組間通訊的全域狀態變數。
+├───audio_multi_process/    # 音訊處理模組。
+│   ├───audio_spliter.py    # (目前未在 main.py 中使用) 分割音訊檔案。
+│   └───parallel_transcriber.py # (目前未在 main.py 中使用) 平行轉錄。
+├───frontend/               # React 前端應用程式。
+│   ├───public/             # 靜態資源。
+│   └───src/                # React 組件 (App.js 為主要)。
+├───modules/                # 核心 Python 工具模組。
+│   ├───cleantranscription.py # 清理原始轉錄文字。
+│   ├───download_YTvideo2wav.py # 下載 YouTube 影片音訊為 WAV。
+│   ├───transcribe_wav.py   # 單執行緒音訊轉錄 (faster-whisper)。
+│   ├───yt_get_cc.py        # 下載 YouTube 官方字幕。
+│   └───yt_transcription_re.py # 清理 VTT 字幕檔案。
+├───Question/               # 查詢特定結果的輸出目錄。
+├───step1_get_10url/        # 影片網址獲取模組。
+│   └───get_top_10_watched.py # 使用 YouTube API 獲取熱門影片。
+└───step3_AI_summary/       # AI 分析和摘要模組。
+    ├───analyze_transcript_with_gemini.py # 使用 Gemini 分析單個轉錄稿。
+    ├───combine_and_extract_final_info.py # 合併分析結果並提取最終資訊。
+    └───combine_transcripts.py # (目前未在 main.py 中使用) 合併多個轉錄稿。
+```
 
-#### 2.2 如果官方字幕失敗或未找到 (`modules/download_YTvideo2wav.py` & `modules/transcribe_wav.py`)
--   **功能：** 如果沒有找到官方字幕或下載失敗，影片會被添加到音訊下載佇列中。然後使用 `download_YTvideo2wav.download_audio` 下載這些影片的音訊，並使用 `transcribe_wav.transcribe_audio_single` 進行語音轉文字 (STT) 轉錄。
--   **觸發：** 在 `main.py` 中，當官方字幕獲取失敗時。
--   **輸出：** 轉錄後的路徑會儲存在 `video['transcript_path']` 中。成功音訊轉錄後，會立即觸發單個轉錄稿的 AI 分析（步驟 3）。
+## 專案流程圖
 
-### 步驟 3：單個轉錄稿 AI 分析 (`step3_AI_summary/analyze_transcript_with_gemini.py`)
--   **功能：** 將單個影片的轉錄稿內容發送給 `gemini-2.5-flash-lite` 模型，進行詳細的內容分析、組織和有用資訊提取。
--   **觸發：** 在 `main.py` 中，成功獲取單個影片的 `video['transcript_path']` 後（無論是來自官方 CC 還是音訊 STT），此模組會立即被呼叫。
--   **輸出：** AI 的詳細分析會儲存為 `<video_id>.txt` 檔案，直接位於 `Question/<query_folder_name>/summary/` 目錄下。
+詳細的專案流程圖請參考 [docs/flowchart.md](docs/flowchart.md)。
 
-### 步驟 4：合併 AI 分析 (`step3_AI_summary/combine_and_extract_final_info.py`)
--   **功能：** 讀取 `Question/<query_folder_name>/summary/` 目錄中的所有單個分析檔案（`<video_id>.txt`），合併它們的內容，並將此聚合文本發送給 `gemini-2.5-flash-lite` 模型。AI 的任務是從聚合內容中提取重要的資訊和節錄。
--   **觸發：** 在 `main.py` 中，當 `videos_to_process` 列表中的所有影片都完成了轉錄稿生成和單個 AI 分析（步驟 3）後，此模組會被呼叫。
--   **輸出：** 最終提取的資訊會儲存到 `Question/<query_folder_name>/final_extracted_info.txt`。
+## 設定與運行
 
-## 支援模組
--   `modules/cleantranscription.py`: 提供清理原始轉錄文本（例如，移除時間戳）的功能。
--   `modules/summarize_transcripts.py`: (目前在 `main.py` 的主要流程中未使用，但提供分析轉錄字數的功能)。
--   `audio_multi_process/audio_spliter.py`: 提供將音訊檔案分割成塊的功能。(目前在 `main.py` 的主要流程中未使用)。
--   `audio_multi_process/parallel_transcriber.py`: 提供並行音訊轉錄的功能。(目前在 `main.py` 的主要流程中未使用，`transcribe_wav.py` 用於單執行緒轉錄)。
+### 前置條件
 
-## 配置
--   `SIMULATE_AI_PROCESSING` 標誌 (`main.py`): 控制是否進行實際 AI API 呼叫 (`False`) 或模擬處理 (`True`)。
--   `GEMINI_API_KEY` (`.env` 檔案): 進行實際 AI 處理所需。
--   `YOUTUBE_API_KEY` (`.env` 檔案): 進行 YouTube API 搜尋所需。
+*   Python 3.9+
+*   Node.js & npm
+*   FFmpeg (用於音訊轉換，請確保其在您的系統 PATH 中)
+*   Google YouTube Data API Key (設定為環境變數 `YOUTUBE_API_KEY`)
+*   Google Gemini API Key (設定為環境變數 `GEMINI_API_KEY`)
 
-## 如何運行
-1.  確保您已安裝所有必要的 Python 套件 (參考 `requirements.txt` 或專案依賴)。
-2.  在專案根目錄下建立 `.env` 檔案，並設定 `GEMINI_API_KEY` 和 `YOUTUBE_API_KEY`。
-    ```
-    GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-    YOUTUBE_API_KEY="YOUR_YOUTUBE_API_KEY"
-    ```
-3.  運行 `main.py` 腳本：
+### 後端設定
+
+1.  **安裝 Python 依賴：**
     ```bash
-    python main.py
+    pip install -r requirements.txt # (假設 requirements.txt 存在或自行創建)
+    # 如果沒有 requirements.txt，請手動安裝：
+    # pip install Flask Flask-Cors yt-dlp google-api-python-client isodate python-dotenv google-generativeai faster-whisper librosa soundfile
     ```
-4.  按照提示輸入您想搜尋的中文主題。
+2.  **設定環境變數：** 在專案根目錄創建一個 `.env` 檔案，包含您的 API 金鑰：
+    ```
+    YOUTUBE_API_KEY="您的_YOUTUBE_API_KEY"
+    GEMINI_API_KEY="您的_GEMINI_API_KEY"
+    ```
+3.  **運行後端：**
+    ```bash
+    python app.py
+    ```
 
-## 注意事項
--   `SIMULATE_AI_PROCESSING` 預設為 `False`，表示會進行實際的 AI 呼叫。如果您想在不消耗 API 配額的情況下測試流程，請將其設定為 `True`。
--   音訊轉錄 (STT) 可能需要較長時間，具體取決於音訊長度和模型大小。
--   請確保您的環境已正確配置 `ffmpeg`，以便 `yt-dlp` 能夠正確處理音訊轉換。
+### 前端設定
+
+1.  **進入前端目錄：**
+    ```bash
+    cd frontend
+    ```
+2.  **安裝 Node.js 依賴：**
+    ```bash
+    npm install
+    ```
+3.  **運行前端：**
+    ```bash
+    npm start
+    ```
+
+### 使用方法
+
+1.  確保後端和前端伺服器都在運行。
+2.  在瀏覽器中打開 `http://localhost:3000`。
+3.  在輸入框中輸入您感興趣的主題，然後點擊「Analyze」。
+4.  觀察即時狀態更新和最終提取的知識。
+
+## 目前已知問題 / 未來改進
+
+*   **大型音訊檔案處理：** 目前的 `transcribe_wav.py` 會將整個音訊檔案載入到記憶體中，這可能導致高磁碟 I/O 並使非常長的影片崩潰。需要一個更穩健的解決方案，涉及音訊分割和基於塊的轉錄（類似於 `parallel_transcriber.py` 但不一次性載入整個音訊）。
+*   **錯誤處理：** 增強錯誤處理和報告，以實現更優雅的故障。
+*   **臨時檔案清理：** 實施一種機制，在成功處理後清理臨時音訊和轉錄檔案。
+*   **可擴展性：** 考慮使用非同步處理或訊息佇列來處理長時間運行的任務。
+*   **UI/UX 優化：** 進一步優化前端設計和使用者體驗。
+
+    ```
+2.  **Set Environment Variables:** Create a `.env` file in the project root with your API keys:
+    ```
+    YOUTUBE_API_KEY="YOUR_YOUTUBE_API_KEY"
+    GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+    ```
+3.  **Run the Backend:**
+    ```bash
+    python app.py
+    ```
+
+### Frontend Setup
+
+1.  **Navigate to frontend directory:**
+    ```bash
+    cd frontend
+    ```
+2.  **Install Node.js dependencies:**
+    ```bash
+    npm install
+    ```
+3.  **Run the Frontend:**
+    ```bash
+    npm start
+    ```
+
+### Usage
+
+1.  Ensure both backend and frontend servers are running.
+2.  Open your browser to `http://localhost:3000`.
+3.  Enter a topic of interest in the input field and click "Analyze".
+4.  Observe the real-time status updates and the final extracted knowledge.
+
+## Current Known Issues / Future Improvements
+
+*   **Large Audio File Processing:** The current `transcribe_wav.py` loads entire audio files into memory, which can lead to high disk I/O and crashes for very long videos. A more robust solution involving audio splitting and chunk-based transcription (similar to `parallel_transcriber.py` but without loading the whole audio at once) is needed.
+*   **Error Handling:** Enhance error handling and reporting for more graceful failures.
+*   **Temporary File Cleanup:** Implement a mechanism to clean up temporary audio and transcript files after successful processing.
+*   **Scalability:** Consider using asynchronous processing or message queues for long-running tasks.
+*   **UI/UX Refinements:** Further refine the frontend design and user experience.

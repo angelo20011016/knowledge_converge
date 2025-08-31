@@ -78,6 +78,7 @@ def get_subtitle(url: str, output_dir: str, lang_prefs: list[str] = None) -> str
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     safe_title = _sanitize_filename(title)
+    video_id = info.get('id', safe_title) # Use video_id for filename, fallback to title
     is_auto_sub = target_lang in auto_captions and target_lang not in subtitles
 
     ydl_opts = {
@@ -85,8 +86,8 @@ def get_subtitle(url: str, output_dir: str, lang_prefs: list[str] = None) -> str
         "writesubtitles": not is_auto_sub,
         "writeautomaticsub": is_auto_sub,
         "subtitleslangs": [target_lang],
-        "subtitlesformat": "vtt", # Still prefer VTT
-        "outtmpl": str(output_path / f"{safe_title}.%(language)s"),
+        "subtitlesformat": "vtt",
+        "outtmpl": str(output_path / f"{video_id}.%(language)s"), # Use video_id for filename
         "quiet": True,
         "no_warnings": True,
     }
@@ -95,41 +96,35 @@ def get_subtitle(url: str, output_dir: str, lang_prefs: list[str] = None) -> str
     for attempt in range(2):
         try:
             with YoutubeDL(ydl_opts) as ydl:
-                # This will return the info_dict, which contains 'filepath' after download
                 download_info = ydl.extract_info(url, download=True)
-                downloaded_filepath = download_info.get('filepath')
-            
+                
+                # Get the exact path from yt-dlp's output info
+                requested_subs = download_info.get('requested_subtitles')
+                if requested_subs and target_lang in requested_subs:
+                    sub_info = requested_subs[target_lang]
+                    # 'filepath' key is available in newer yt-dlp versions and is most reliable
+                    if 'filepath' in sub_info:
+                        downloaded_filepath = sub_info['filepath']
+                    else: # Fallback for older versions or different structures
+                        ext = sub_info.get('ext')
+                        if ext:
+                            base_path = ydl_opts['outtmpl']
+                            final_path = f"{base_path}.{ext}"
+                            if os.path.exists(final_path):
+                                downloaded_filepath = final_path
+
             if downloaded_filepath and os.path.exists(downloaded_filepath):
                 print(f"Subtitle downloaded to: {downloaded_filepath}")
                 return downloaded_filepath
             else:
-                # If filepath is not directly available or doesn't exist, try to find it by globbing
-                found_files = list(output_path.glob(f"{safe_title}*"))
-                if found_files:
-                    # Prioritize .vtt, then .json, then any other
-                    for f in found_files:
-                        if f.suffix == '.vtt':
-                            print(f"Found .vtt subtitle: {f}")
-                            return str(f)
-                    for f in found_files:
-                        if f.suffix == '.json': # Live chat often downloads as JSON
-                            print(f"Found .json subtitle: {f}")
-                            # After filtering, this should ideally not happen for valid subtitles.
-                            # But if it does, we should treat it as a failure.
-                            print(f"Warning: Downloaded a .json file for {safe_title}. Treating as no valid subtitle.", file=sys.stderr)
-                            os.remove(f) # Clean up the unwanted file
-                            return None
-                    print(f"Found other subtitle file: {found_files[0]}")
-                    return str(found_files[0]) # Return the first one found
-                
-                print(f"Error: Subtitle file was expected but not found for {safe_title} after download.", file=sys.stderr)
-                return None # Failed to find after download
+                print(f"Info: Subtitle for lang '{target_lang}' not available or empty for {video_id}. Proceeding without it.")
+                return None
 
+        except utils.DownloadError as e:
+            print(f"Warning: yt-dlp failed to download subtitle for {video_id}: {e}", file=sys.stderr)
+            return None
         except Exception as e:
-            print(f"Attempt {attempt + 1} to download subtitle failed: {e}", file=sys.stderr)
+            print(f"Attempt {attempt + 1} to download subtitle failed with unexpected error: {e}", file=sys.stderr)
             if attempt == 0:
                 print("Retrying in 5 seconds...")
                 time.sleep(5)
-    
-    print(f"Failed to download subtitle for lang '{target_lang}' after all attempts.", file=sys.stderr)
-    return None

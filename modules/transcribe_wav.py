@@ -4,6 +4,15 @@ from pathlib import Path
 import time
 import traceback # Added import
 import sys # Added import for sys.stderr
+import os
+
+# --- Set Hugging Face cache to D: drive to avoid filling up C: drive ---
+cache_dir = "D:/huggingface_cache"
+os.environ['HF_HOME'] = cache_dir
+os.environ['HF_HUB_CACHE'] = os.path.join(cache_dir, 'hub')
+os.environ['HUGGINGFACE_HUB_CACHE'] = os.path.join(cache_dir, 'hub')
+# Ensure the cache directory exists
+os.makedirs(os.path.join(cache_dir, 'hub'), exist_ok=True)
 
 def transcribe_audio_single(audio_path: str, output_dir: str, language: str = "zh", model_params: dict = None) -> str | None:
     """
@@ -49,12 +58,23 @@ def transcribe_audio_single(audio_path: str, output_dir: str, language: str = "z
         output_path.mkdir(exist_ok=True)
         transcript_file_path = output_path / (Path(audio_path).stem + "_transcript.txt")
         
-        print("Processing and writing segments to file...")
+        print("Processing and writing segments to file in batches of 10...")
         with open(transcript_file_path, "w", encoding="utf-8") as f:
-            for i, seg in enumerate(segments_generator):
+            segment_batch = []
+            for i, seg in enumerate(segments_generator, 1):
                 segment_text = seg.text.strip()
-                f.write(segment_text + " ")
-                print(f"  - Transcribed segment {i+1}: {segment_text}")
+                segment_batch.append(segment_text)
+                
+                if i % 10 == 0:
+                    # Write out the batch
+                    f.write(" ".join(segment_batch) + " ")
+                    print(f"  - Transcribed and wrote segments {i-9} to {i}")
+                    segment_batch = [] # Reset the batch
+
+            # Write any remaining segments in the last batch
+            if segment_batch:
+                f.write(" ".join(segment_batch) + " ")
+                print(f"  - Wrote final {len(segment_batch)} segments.")
 
         print(f"Transcription and saving completed in {time.time() - save_text_start_time:.2f}s.")
         print(f"Full transcript saved to: {transcript_file_path}")
