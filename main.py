@@ -6,6 +6,11 @@ from pathlib import Path
 from googletrans import Translator, LANGUAGES
 from dotenv import load_dotenv
 
+# --- Configuration for AI Processing ---
+# Set to True to simulate AI processing without making actual API calls.
+# Set to False to enable actual AI processing (requires GEMINI_API_KEY in .env).
+SIMULATE_AI_PROCESSING = True
+
 # --- Add subdirectories to Python path ---
 current_dir = os.path.dirname(__file__)
 sys.path.append(os.path.join(current_dir, 'step1_get_10url'))
@@ -21,6 +26,10 @@ from yt_transcription_re import clean_vtt_file
 from transcribe_wav import transcribe_audio_single
 from summarize_transcripts import analyze_transcripts
 from combine_transcripts import combine_transcripts
+
+# Import new AI processing modules
+from analyze_transcript_with_gemini import analyze_transcript_with_gemini
+from combine_and_extract_final_info import combine_and_extract_final_info
 
 
 def translate_query(query: str) -> str:
@@ -132,10 +141,24 @@ def main():
                 try:
                     cleaned_transcript_path = clean_vtt_file(subtitle_path, output_dir=str(transcripts_dir))
                     video['transcript_path'] = cleaned_transcript_path
-                    print(f"Cleaned transcript saved to {cleaned_transcript_path}")
+                    print(f"已將清理後的轉錄稿儲存至：{cleaned_transcript_path}")
+
+                    # --- AI 處理：分析單個轉錄稿 (官方 CC) ---
+                    if not SIMULATE_AI_PROCESSING:
+                        print(f"正在呼叫 analyze_transcript_with_gemini 處理：{cleaned_transcript_path}...")
+                        analyze_transcript_with_gemini(cleaned_transcript_path)
+                    else:
+                        print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理：{cleaned_transcript_path}")
+                        # 模擬資料夾建立和檔案寫入
+                        simulated_video_id = Path(cleaned_transcript_path).stem
+                        simulated_summary_dir = question_dir / 'summary' / simulated_video_id
+                        os.makedirs(simulated_summary_dir, exist_ok=True)
+                        with open(simulated_summary_dir / 'analysis.txt', 'w', encoding='utf-8') as f:
+                            f.write(f"[模擬] 針對 {simulated_video_id} 的分析 (官方 CC)")
+                        print(f"[模擬] 分析結果已儲存至：{simulated_summary_dir / 'analysis.txt'}")
                 except Exception as e:
-                    print(f"Error cleaning official subtitle for {video['title']}: {e}", file=sys.stderr)
-                    video['transcript_failed'] = True # Mark as failed if cleaning fails
+                    print(f"清理官方字幕時發生錯誤，影片：{video['title']}，錯誤訊息：{e}", file=sys.stderr)
+                    video['transcript_failed'] = True # 標記為清理失敗
             else:
                 print(f"No official subtitle found for {video['title']}. Will attempt audio download.")
                 videos_for_audio_download.append(video)
@@ -176,15 +199,42 @@ def main():
                 )
                 if transcript_path:
                     video['transcript_path'] = transcript_path
-                    print(f"Transcription completed for {video['title']}")
+                    print(f"轉錄完成，影片：{video['title']}")
+
+                    # --- AI 處理：分析單個轉錄稿 (音訊 STT) ---
+                    if not SIMULATE_AI_PROCESSING:
+                        print(f"正在呼叫 analyze_transcript_with_gemini 處理：{transcript_path}...")
+                        analyze_transcript_with_gemini(transcript_path)
+                    else:
+                        print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理：{transcript_path}")
+                        # 模擬資料夾建立和檔案寫入
+                        simulated_video_id = Path(transcript_path).stem
+                        simulated_summary_dir = question_dir / 'summary' / simulated_video_id
+                        os.makedirs(simulated_summary_dir, exist_ok=True)
+                        with open(simulated_summary_dir / 'analysis.txt', 'w', encoding='utf-8') as f:
+                            f.write(f"[模擬] 針對 {simulated_video_id} 的分析 (音訊 STT)")
+                        print(f"[模擬] 分析結果已儲存至：{simulated_summary_dir / 'analysis.txt'}")
+
                 else:
                     video['transcription_failed'] = True
-                    print(f"Transcription failed for {video['title']}")
+                    print(f"轉錄失敗，影片：{video['title']}")
             except Exception as e:
                 video['transcription_failed'] = True
                 print(f"Error transcribing audio for {video['title']}: {e}", file=sys.stderr)
         else:
             print(f"Skipping transcription for {video['title']}: No audio path found.")
+
+    # --- AI 處理：合併並提取最終資訊 ---
+    if not SIMULATE_AI_PROCESSING:
+        print(f"正在呼叫 combine_and_extract_final_info 處理：{question_dir}...")
+        combine_and_extract_final_info(str(question_dir))
+    else:
+        print(f"[模擬] 正在呼叫 combine_and_extract_final_info 處理：{question_dir}")
+        # 模擬最終提取檔案寫入
+        simulated_final_extraction_path = question_dir / 'final_extracted_info.txt'
+        with open(simulated_final_extraction_path, 'w', encoding='utf-8') as f:
+            f.write(f"[模擬] 針對 {question_dir.name} 的最終提取資訊")
+        print(f"[模擬] 最終提取資訊已儲存至：{simulated_final_extraction_path}")
 
     # 4. Final check and analysis
     #step4_verify_and_analyze(videos_to_process, urls_json_path)
