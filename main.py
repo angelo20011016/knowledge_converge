@@ -47,10 +47,10 @@ async def translate_query(query: str) -> str:
         return query
     try:
         translator = Translator()
-        detection = await translator.detect(query)
+        detection = translator.detect(query)
         source_lang = detection.lang
         # Force source language to Chinese for better accuracy
-        translated = await translator.translate(query, src='zh-TW', dest='en')
+        translated = translator.translate(query, src='zh-TW', dest='en')
         print(f"Translated '{query}' from {LANGUAGES.get(source_lang, 'Unknown')} to English: '{translated.text}'")
         return translated.text
     except Exception as e:

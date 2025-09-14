@@ -1,0 +1,11 @@
+# Tunnel UUID, this is the ID you just created.
+tunnel: b609df34-a8ce-4333-bf96-d3cb3d6ea2c7
+# Path to the credentials file.
+credentials-file: /Users/angelo/.cloudflared/b609df34-a8ce-4333-bf96-d3cb3d6ea2c7.json
+
+ingress:
+  # Route traffic for your domain to the local frontend service (React app).
+  - hostname: noledge.happywecan.com
+    service: http://localhost:3000
+  # This is a catch-all rule to respond with 404 for any other requests.
+  - service: http_status:404

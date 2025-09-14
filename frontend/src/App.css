@@ -348,8 +348,73 @@ p, label, span {
   padding: 0;
 }
 
-.markdown-content hr {
-    border: none;
-    border-top: var(--border);
-    margin: 2em 0;
+/* --- Responsive Design for smaller screens --- */
+@media (max-width: 768px) {
+  .app-layout {
+    /* Stack sidebar and content vertically */
+    flex-direction: column;
+  }
+
+  .sidebar {
+    /* Convert sidebar to a top navbar */
+    position: relative; /* Override 'fixed' */
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: var(--border);
+    padding: 1rem;
+
+    /* Arrange logo and nav items horizontally */
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .main-content {
+    /* Take up full width */
+    margin-left: 0;
+    padding: 1.5rem;
+  }
+
+  .sidebar-header {
+    /* Reset spacing for horizontal layout */
+    margin-bottom: 0;
+  }
+
+  .nav-menu {
+    /* Arrange nav items horizontally */
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .nav-item {
+    margin-bottom: 0;
+    padding: 0.5rem 0.8rem;
+  }
+  
+  .page-header h2 {
+    font-size: 1.8rem; /* Slightly smaller titles on mobile */
+  }
+}
+
+/* Further adjustments for very small screens */
+@media (max-width: 480px) {
+  .main-content {
+    padding: 1rem;
+  }
+
+  .nav-item span {
+    /* On very small screens, hide the text to save space */
+    display: none;
+  }
+
+  .nav-item {
+    padding: 0.6rem;
+  }
+
+  .sidebar-header h1 {
+    /* Optionally hide the text logo on the smallest screens */
+    display: none;
+  }
 }
