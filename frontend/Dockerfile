@@ -3,16 +3,9 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json
 COPY package.json package-lock.json ./
-
-# Install dependencies using npm ci for consistency
 RUN npm ci
-
-# Copy the rest of the application source code
 COPY . ./
-
-# Build the application
 RUN npm run build
 
 # Stage 2: Serve the application using Nginx
@@ -21,11 +14,16 @@ FROM nginx:stable-alpine
 # Copy the build output from the build stage
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy the custom Nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy Nginx configs and the startup script
+COPY nginx.dev.conf /etc/nginx/nginx.dev.conf
+COPY nginx.prod.conf /etc/nginx/nginx.prod.conf
+COPY start.sh /start.sh
+
+# Make the startup script executable
+RUN chmod +x /start.sh
 
 # Expose port 80
 EXPOSE 80
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Run the startup script
+CMD ["/start.sh"]

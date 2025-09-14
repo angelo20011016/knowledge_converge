@@ -1,0 +1,31 @@
+# Render Blueprint Spec: https://render.com/docs/blueprint-spec
+
+services:
+  # --------------------
+  # Backend (Python API)
+  # --------------------
+  - type: web
+    name: vkc-backend
+    env: docker
+    envVarGroups:
+      - name: vkc-secrets
+        sync: true
+
+  # --------------------
+  # Frontend (React App)
+  # --------------------
+  - type: web
+    name: vkc-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    envVars:
+      - key: ENV_MODE
+        value: production
+    rewrites:
+      - source: /api/:path*
+        destination: http://vkc-backend:5000/api/:path*
+      - source: /analyze
+        destination: http://vkc-backend:5000/analyze
+      - source: /status
+        destination: http://vkc-backend:5000/status
