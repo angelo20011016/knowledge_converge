@@ -13,7 +13,7 @@ const TopicSearchPage = () => {
   const [error, setError] = useState(null);
 
   const pollingRef = useRef(null);
-  const API_BASE_URL = "http://127.0.0.1:5000";
+  // const API_BASE_URL = "http://127.0.0.1:5000"; // No longer needed, proxied by Nginx
 
   useEffect(() => {
     return () => clearInterval(pollingRef.current);
@@ -21,7 +21,7 @@ const TopicSearchPage = () => {
 
   const pollStatus = () => {
     pollingRef.current = setInterval(() => {
-      fetch(`${API_BASE_URL}/api/get-result`)
+      fetch(`/api/get-result`)
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(data => {
           if (data.individual_summaries || data.final_content) {
@@ -35,7 +35,7 @@ const TopicSearchPage = () => {
             setIsLoading(false);
             clearInterval(pollingRef.current);
           }
-          return fetch(`${API_BASE_URL}/status`);
+          return fetch(`/status`);
         })
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(statusData => setStatus(statusData))
@@ -57,7 +57,7 @@ const TopicSearchPage = () => {
     setStatus({ main: "Initializing...", sub: "" });
     clearInterval(pollingRef.current);
 
-    fetch(`${API_BASE_URL}/analyze`, {
+    fetch(`/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 

@@ -1,9 +1,17 @@
-Question/
+# Environment
 .env
 venv/
-*__pycache__/
-.pyc
-*.txt
-*.vtt
+
+# Python cache
+__pycache__/
 *.pyc
-*.wav
+
+# Application Output
+/output/
+/Question/
+/processed_audio/
+/transcripts_test/
+
+# OS specific
+.DS_Store
+Thumbs.db
