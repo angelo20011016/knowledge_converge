@@ -187,11 +187,10 @@ def run_analysis_for_url(url: str, language: str = 'en'):
                 print(f"Audio downloaded successfully: {audio_path}")
                 current_status["main"] = "Transcribing Audio"
                 current_status["sub"] = "This may take a few minutes..."
-                model_params = {"model_size_or_path": "base", "device": "cuda", "compute_type": "int8"}
                 transcript_path = transcribe_audio_single(
                     audio_path=audio_path,
                     output_dir=str(transcripts_dir),
-                    model_params=model_params,
+                    model_params=None, # Pass None as model_params is no longer used by Gemini
                     language=language
                 )
                 print(f"Audio transcribed successfully: {transcript_path}")
@@ -248,7 +247,7 @@ def run_analysis_for_url(url: str, language: str = 'en'):
         return {"status": "error", "message": "Failed to generate a transcript from subtitles or audio."}
 
 
-def run_analysis(chinese_query: str):
+def run_analysis(chinese_query: str, process_audio: bool = False):
 
     print("--- run_analysis: START ---")
     start_time = time.time()
@@ -343,100 +342,98 @@ def run_analysis(chinese_query: str):
                     video['transcript_failed'] = True # 標記為清理失敗
             else:
                 current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - No official subtitle found."
-                print(f"No official subtitle found for {video['title']}. Will attempt audio download.")
-                videos_for_audio_download.append(video)
+                if process_audio:
+                    print(f"No official subtitle found for {video['title']}. Will attempt audio download.")
+                    videos_for_audio_download.append(video)
+                else:
+                    print(f"No official subtitle found for {video['title']}. Skipping audio processing as per settings.")
         except Exception as e:
             current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Error getting official subtitle."
             print(f"Error getting official subtitle for {video['title']}: {e}", file=sys.stderr)
-            videos_for_audio_download.append(video) # Add to list for audio download if any error occurs
+            if process_audio:
+                videos_for_audio_download.append(video) # Add to list for audio download if any error occurs
 
-    # 2. Batch audio download for videos without official subtitles
-    current_status["main"] = "Downloading Audio"
-    print("\n--- Batch Audio Download for videos without official subtitles ---\n")
-    audio_download_queue = []
-    for i, video in enumerate(videos_for_audio_download):
-        current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Downloading audio..."
-        print(f"\n--- Processing video {i+1}/{len(videos_for_audio_download)} for audio download ---\n")
-        try:
-            audio_path = download_audio(video['url'], output_dir=str(audio_dir))
-            if audio_path:
-                video['audio_path'] = audio_path
-                audio_download_queue.append(video)
-                current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Audio downloaded."
-                print(f"Audio downloaded for {video['title']}")
-            else:
-                video['audio_download_failed'] = True
-                current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Audio download failed."
-                print(f"Audio download failed for {video['title']}")
-        except Exception as e:
-            video['audio_download_failed'] = True
-            current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Error downloading audio."
-            print(f"Error downloading audio for {video['title']}: {e}", file=sys.stderr)
-
-    # 3. Batch STT for downloaded audio files
-    current_status["main"] = "Transcribing Audio"
-    print("\n--- Batch Transcription (STT) for downloaded audio files---\n")
-    model_params = {"model_size_or_path": "base", "device": "cuda", "compute_type": "int8"} # Define once
-    for i, video in enumerate(audio_download_queue):
-        current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcribing..."
-        print(f"\n--- Transcribing audio for {video['title']} ({i+1}/{len(audio_download_queue)}) ---\n")
-        if video.get('audio_path'):
+    if process_audio:
+        # 2. Batch audio download for videos without official subtitles
+        current_status["main"] = "Downloading Audio"
+        print("\n--- Batch Audio Download for videos without official subtitles ---\n")
+        audio_download_queue = []
+        for i, video in enumerate(videos_for_audio_download):
+            current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Downloading audio..."
+            print(f"\n--- Processing video {i+1}/{len(videos_for_audio_download)} for audio download ---\n")
             try:
-                transcript_path = transcribe_audio_single(
-                    audio_path=video['audio_path'],
-                    output_dir=str(transcripts_dir),
-                    model_params=model_params,
-                    language=video.get('query_lang', 'zh')
-                )
-                if transcript_path:
-                    video['transcript_path'] = transcript_path
-                    current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription complete."
-                    print(f"轉錄完成，影片：{video['title']}")
-                    print("--- Adding a short delay to allow disk I/O to settle ---")
-                    time.sleep(2)
+                audio_path = download_audio(video['url'], output_dir=str(audio_dir))
+                if audio_path:
+                    video['audio_path'] = audio_path
+                    audio_download_queue.append(video)
+                    current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Audio downloaded."
+                    print(f"Audio downloaded for {video['title']}")
                 else:
-                    video['transcription_failed'] = True
-                    current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription failed."
-                    print(f"轉錄失敗，影片：{video['title']}")
+                    video['audio_download_failed'] = True
+                    current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Audio download failed."
+                    print(f"Audio download failed for {video['title']}")
             except Exception as e:
-                video['transcription_failed'] = True
-                current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Error transcribing."
-                print(f"Error transcribing audio for {video['title']}: {e}", file=sys.stderr)
-        else:
-            current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Skipping transcription (no audio)."
-            print(f"Skipping transcription for {video['title']}: No audio path found.")
+                video['audio_download_failed'] = True
+                current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Error downloading audio."
+                print(f"Error downloading audio for {video['title']}: {e}", file=sys.stderr)
 
-    # --- AI 處理：分析單個轉錄稿 (STT 轉錄後) ---
-    current_status["main"] = "Analyzing STT Transcripts"
-    print("\n--- Performing AI Analysis for STT Transcripts ---")
-    for i, video in enumerate(videos_to_process):
-        # Check if transcript_path exists and if it's an STT transcript (not official CC)
-        # A simple way to check if it's an STT transcript is if 'audio_path' exists for the video
-        # and if 'transcript_path' is set, and if it hasn't been analyzed yet.
-        # We can check if an analysis file already exists for this video.
-        
-        if video.get('transcript_path') and video.get('audio_path'): # It's an STT transcript
-            transcript_path = video['transcript_path']
-            video_id = Path(transcript_path).stem
-            analysis_file_path = question_dir / 'summary' / f"{video_id}.txt"
-
-            if not analysis_file_path.exists(): # Only analyze if not already analyzed
-                if not SIMULATE_AI_PROCESSING:
-                    current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Analyzing STT transcript (AI)..."
-                    print(f"--- Before analyze_transcript_with_gemini (STT) for {video['title']} ---")
-                    analyze_transcript_with_gemini(transcript_path)
-                    current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - STT transcript analyzed."
-                    print(f"--- After analyze_transcript_with_gemini (STT) for {video['title']} ---")
-                else:
-                    current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Simulating STT transcript analysis."
-                    print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理 (STT): {transcript_path}")
-                    # 模擬資料夾建立和檔案寫入
-                    with open(analysis_file_path, 'w', encoding='utf-8') as f:
-                        f.write(f"[模擬] 針對 {video_id} 的分析 (音訊 STT)")
-                    print(f"[模擬] 分析結果已儲存至：{analysis_file_path}")
+        # 3. Batch STT for downloaded audio files
+        current_status["main"] = "Transcribing Audio"
+        print("\n--- Batch Transcription (STT) for downloaded audio files---\n")
+        for i, video in enumerate(audio_download_queue):
+            current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcribing..."
+            print(f"\n--- Transcribing audio for {video['title']} ({i+1}/{len(audio_download_queue)}) ---\n")
+            if video.get('audio_path'):
+                try:
+                    transcript_path = transcribe_audio_single(
+                        audio_path=video['audio_path'],
+                        output_dir=str(transcripts_dir),
+                        language=video.get('query_lang', 'zh')
+                    )
+                    if transcript_path:
+                        video['transcript_path'] = transcript_path
+                        current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription complete."
+                        print(f"轉錄完成，影片：{video['title']}")
+                        print("--- Adding a short delay to allow disk I/O to settle ---")
+                        time.sleep(2)
+                    else:
+                        video['transcription_failed'] = True
+                        current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription failed."
+                        print(f"轉錄失敗，影片：{video['title']}")
+                except Exception as e:
+                    video['transcription_failed'] = True
+                    current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Error transcribing."
+                    print(f"Error transcribing audio for {video['title']}: {e}", file=sys.stderr)
             else:
-                current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Analysis file already exists (STT)."
-                print(f"分析檔案已存在，跳過 (STT): {analysis_file_path}")
+                current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Skipping transcription (no audio)."
+                print(f"Skipping transcription for {video['title']}: No audio path found.")
+
+        # --- AI 處理：分析單個轉錄稿 (STT 轉錄後) ---
+        current_status["main"] = "Analyzing STT Transcripts"
+        print("\n--- Performing AI Analysis for STT Transcripts ---")
+        for i, video in enumerate(videos_to_process):
+            if video.get('transcript_path') and video.get('audio_path'): # It's an STT transcript
+                transcript_path = video['transcript_path']
+                video_id = Path(transcript_path).stem
+                analysis_file_path = question_dir / 'summary' / f"{video_id}.txt"
+
+                if not analysis_file_path.exists(): # Only analyze if not already analyzed
+                    if not SIMULATE_AI_PROCESSING:
+                        current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Analyzing STT transcript (AI)..."
+                        print(f"--- Before analyze_transcript_with_gemini (STT) for {video['title']} ---")
+                        analyze_transcript_with_gemini(transcript_path)
+                        current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - STT transcript analyzed."
+                        print(f"--- After analyze_transcript_with_gemini (STT) for {video['title']} ---")
+                    else:
+                        current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Simulating STT transcript analysis."
+                        print(f"[模擬] 正在呼叫 analyze_transcript_with_gemini 處理 (STT): {transcript_path}")
+                        # 模擬資料夾建立和檔案寫入
+                        with open(analysis_file_path, 'w', encoding='utf-8') as f:
+                            f.write(f"[模擬] 針對 {video_id} 的分析 (音訊 STT)")
+                        print(f"[模擬] 分析結果已儲存至：{analysis_file_path}")
+                else:
+                    current_status["sub"] = f"Video {i+1}/{len(videos_to_process)}: {video['title']} - Analysis file already exists (STT)."
+                    print(f"分析檔案已存在，跳過 (STT): {analysis_file_path}")
 
     # --- AI 處理：合併並提取最終資訊 ---
     # --- Consistency Check ---

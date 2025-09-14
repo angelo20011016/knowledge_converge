@@ -63,7 +63,8 @@ def get_result():
             if summary_dir.is_dir():
                 summary_files = summary_dir.glob('*_summary.txt')
                 for summary_file in summary_files:
-                    video_id = summary_file.stem.split('_')[0]
+                    # Correctly extract video_id from filenames like 'T-D1OfcDW1M.NA.en_cleaned_summary.txt'
+                    video_id = summary_file.stem.split('.')[0]
                     if video_id in video_title_map:
                         video_info = video_title_map[video_id]
                         with open(summary_file, 'r', encoding='utf-8') as f:
@@ -104,8 +105,8 @@ def get_result():
     return jsonify({"status": "idle"})
 
 
-def run_analysis_thread(query):
-    run_analysis(query)
+def run_analysis_thread(query, process_audio):
+    run_analysis(query, process_audio=process_audio)
 
 def run_url_analysis_thread(url, language):
     global analysis_context
@@ -138,6 +139,7 @@ def analyze():
     
     data = request.get_json()
     query = data.get('query')
+    process_audio = data.get('process_audio', False)
     if not query: return jsonify({"error": "Query parameter is missing"}), 400
 
     # Calculate question_dir and store it in the context immediately
@@ -146,7 +148,7 @@ def analyze():
     analysis_context.update({"task_type": "topic", "question_dir": question_dir, "result_data": None})
 
     current_status.update({"main": "Starting Analysis", "sub": "Initializing..."})
-    thread = threading.Thread(target=run_analysis_thread, args=(query,))
+    thread = threading.Thread(target=run_analysis_thread, args=(query, process_audio))
     thread.start()
     return jsonify({"status": "Analysis started"}), 202
 
