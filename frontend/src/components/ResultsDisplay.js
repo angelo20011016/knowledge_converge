@@ -1,5 +1,7 @@
 import React from 'react';
 import SummaryCard from './SummaryCard';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const ResultsDisplay = ({ isLoading, status, error, result }) => {
   if (error) {
@@ -24,9 +26,9 @@ const ResultsDisplay = ({ isLoading, status, error, result }) => {
     <div className="results-section glass-card mt-4">
       <h2>Analysis Results</h2>
       {result.final_content && (
-        <div className="summary-card mb-4">
+        <div className="summary-card mb-4 markdown-content">
           <h3>Final Summary</h3>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{result.final_content}</p>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.final_content}</ReactMarkdown>
         </div>
       )}
       {result.individual_summaries?.length > 0 && (

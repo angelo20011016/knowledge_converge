@@ -280,3 +280,76 @@ p, label, span {
     --bs-btn-hover-bg: var(--accent);
     --bs-btn-hover-border-color: var(--accent);
 }
+
+/* --- Markdown Content Styling --- */
+.markdown-content {
+  line-height: 1.7;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  border-bottom: var(--border);
+  padding-bottom: 0.3em;
+}
+
+.markdown-content p {
+  margin-bottom: 1em;
+}
+
+.markdown-content strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 2em;
+  margin-bottom: 1em;
+}
+
+.markdown-content li {
+  margin-bottom: 0.5em;
+}
+
+.markdown-content blockquote {
+  border-left: 4px solid var(--accent);
+  padding-left: 1em;
+  margin-left: 0;
+  font-style: italic;
+  color: #ccc !important;
+}
+
+.markdown-content blockquote p {
+  color: #ccc !important;
+}
+
+.markdown-content code {
+  background-color: #222;
+  padding: 0.2em 0.4em;
+  font-family: 'Source Code Pro', monospace;
+}
+
+.markdown-content pre {
+  background-color: #222;
+  border: var(--border);
+  padding: 1em;
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+.markdown-content hr {
+    border: none;
+    border-top: var(--border);
+    margin: 2em 0;
+}

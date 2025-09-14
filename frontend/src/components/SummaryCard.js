@@ -1,5 +1,7 @@
 import React from 'react';
 import { FiDownload } from 'react-icons/fi';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const SummaryCard = ({ title, url, summary, index }) => {
   const handleDownload = () => {
@@ -36,7 +38,9 @@ const SummaryCard = ({ title, url, summary, index }) => {
             </button>
           </div>
           <hr />
-          <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
+          <div className="markdown-content">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+          </div>
         </div>
       </div>
     </div>
