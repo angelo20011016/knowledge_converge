@@ -1,13 +1,18 @@
+/* Brutalism doesn't need much here. 
+   We ensure the font smoothing is on for better text rendering. */
+
 body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Remove the default focus outline in favor of our custom one in App.css */
+*:focus {
+  outline: none;
+}
+
+/* Brutalism doesn't use rounded corners, so we can enforce this globally if needed,
+   although Bootstrap components might need specific overrides. */
+* {
+  border-radius: 0 !important;
 }

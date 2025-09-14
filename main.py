@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import time
+import asyncio
 from pathlib import Path
 from googletrans import Translator, LANGUAGES
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ import re
 SIMULATE_AI_PROCESSING = False
 
 # --- Base Output Directory ---
-BASE_OUTPUT_DIR = Path("D:/Video_Knowledge_Convergence_Output")
+BASE_OUTPUT_DIR = Path(__file__).parent / "output"
 # Ensure the base output directory exists
 BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -31,7 +32,7 @@ from get_top_10_watched import get_videos_by_api
 from yt_get_cc import get_subtitle
 from download_YTvideo2wav import download_audio
 from yt_transcription_re import clean_vtt_file
-from transcribe_wav import transcribe_audio_single
+from transcribe_wav import transcribe_audio_single # Re-add the correct async transcriber
 from summarize_transcripts import analyze_transcripts
 from combine_transcripts import combine_transcripts
 
@@ -40,49 +41,72 @@ from analyze_transcript_with_gemini import analyze_transcript_with_gemini
 from combine_and_extract_final_info import combine_and_extract_final_info
 
 
-def translate_query(query: str) -> str:
+async def translate_query(query: str) -> str:
     if all(ord(c) < 128 for c in query):
         print(f"Query '{query}' appears to be English, skipping translation.")
         return query
     try:
         translator = Translator()
-        source_lang = translator.detect(query).lang
-        translated = translator.translate(query, src=source_lang, dest='en')
+        detection = await translator.detect(query)
+        source_lang = detection.lang
+        # Force source language to Chinese for better accuracy
+        translated = await translator.translate(query, src='zh-TW', dest='en')
         print(f"Translated '{query}' from {LANGUAGES.get(source_lang, 'Unknown')} to English: '{translated.text}'")
         return translated.text
     except Exception as e:
         print(f"Translation failed: {e}. Using original query.")
         return query
 
-def step1_get_urls(chinese_query: str) -> str | None:
-    safe_folder_name = "".join(c for c in chinese_query if c.isalnum() or c in (' ', '_')).rstrip()
+async def step1_get_urls(query: str, search_mode: str, search_language: str) -> str | None:
+    """
+    Fetches video URLs based on the search mode.
+    - Divergent mode: Searches in both Chinese and English.
+    - Focused mode: Searches only in the specified language.
+    """
+    safe_folder_name = "".join(c for c in query if c.isalnum() or c in (' ', '_')).rstrip()
     output_dir = BASE_OUTPUT_DIR / 'Question' / safe_folder_name
     os.makedirs(output_dir, exist_ok=True)
 
-    english_query = translate_query(chinese_query)
-    
-    all_videos = {} # Use dict for deduplication by video_id
+    all_videos = {}  # Use dict for deduplication by video_id
+    TOTAL_VIDEOS = 10
 
-    # Process Chinese query
-    print(f"\n--- Starting search for '{chinese_query}' (Language: zh) ---")
-    try:
-        videos = get_videos_by_api(chinese_query, max_results=5)
-        for video in videos:
-            all_videos[video['video_id']] = {'title': video['title'], 'url': video['url'], 'query_lang': 'zh'}
-        print(f"Found {len(videos)} results. Total unique videos so far: {len(all_videos)}.")
-    except Exception as e:
-        print(f"An error occurred during YouTube API call: {e}")
-
-    # Process English query if it's different
-    if chinese_query.lower() != english_query.lower():
-        print(f"\n--- Starting search for '{english_query}' (Language: en) ---")
+    if search_mode == 'focused':
+        print(f"\n--- Starting Focused Search for '{query}' (Language: {search_language}) ---")
         try:
-            videos = get_videos_by_api(english_query, max_results=5)
+            videos = get_videos_by_api(query, lang=search_language, max_results=TOTAL_VIDEOS)
             for video in videos:
-                all_videos[video['video_id']] = {'title': video['title'], 'url': video['url'], 'query_lang': 'en'}
-            print(f"Found {len(videos)} results. Total unique videos so far: {len(all_videos)}.")
+                all_videos[video['video_id']] = {'title': video['title'], 'url': video['url'], 'query_lang': search_language}
+            print(f"Found {len(videos)} results.")
         except Exception as e:
             print(f"An error occurred during YouTube API call: {e}")
+
+    else: # Divergent mode
+        english_query = await translate_query(query)
+        split_results = TOTAL_VIDEOS // 2
+
+        # Process Chinese query: Let the query string's language guide the search
+        print(f"\n--- Starting Divergent Search for '{query}' (Language: Auto-detect by YouTube) ---")
+        try:
+            # Do NOT pass the 'lang' parameter for the Chinese part.
+            # The Chinese characters in the query are a strong enough signal for YouTube's search algorithm.
+            videos = get_videos_by_api(query, max_results=split_results)
+            for video in videos:
+                all_videos[video['video_id']] = {'title': video['title'], 'url': video['url'], 'query_lang': 'zh'}
+            print(f"Found {len(videos)} results. Total unique videos so far: {len(all_videos)}.")
+        except Exception as e:
+            print(f"An error occurred during YouTube API call for Chinese query: {e}")
+
+        # Process English query if it's different, and we still need more videos
+        remaining_results = TOTAL_VIDEOS - len(all_videos)
+        if query.lower() != english_query.lower() and remaining_results > 0:
+            print(f"\n--- Starting Divergent Search for '{english_query}' (Language: en) ---")
+            try:
+                videos = get_videos_by_api(english_query, lang='en', max_results=remaining_results)
+                for video in videos:
+                    all_videos[video['video_id']] = {'title': video['title'], 'url': video['url'], 'query_lang': 'en'}
+                print(f"Found {len(videos)} results. Total unique videos so far: {len(all_videos)}.")
+            except Exception as e:
+                print(f"An error occurred during YouTube API call for English query: {e}")
 
     if not all_videos:
         print("No videos found. Aborting.")
@@ -120,26 +144,44 @@ def get_video_info_from_url(url: str) -> dict | None:
         print(f"Error fetching video info from URL {url} using yt-dlp: {e}", file=sys.stderr)
         return None
 
-def run_analysis_for_url(url: str, language: str = 'en'):
+async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en'):
     """
     Runs the analysis pipeline for a single YouTube URL.
+    Accepts an optional title; if not provided, it will be fetched from YouTube.
+    Returns a dictionary with title, url, and summary content.
     """
     print(f"--- run_analysis_for_url: START for {url} with lang={language} ---")
     start_time = time.time()
     current_status["main"] = "Initializing for URL"
     current_status["sub"] = "Fetching video information..."
 
-    video_info = get_video_info_from_url(url)
-    if not video_info:
-        current_status["main"] = "Error"
-        current_status["sub"] = "Could not fetch video info from URL."
-        return {"status": "error", "message": "Invalid YouTube URL or failed to fetch video info."}
+    video_id = None
+    video_title = title # Use the provided title first
+    safe_folder_name = None
 
-    video_id = video_info["video_id"]
-    video_title = video_info["title"]
-    
+    # If no title is provided, fetch it from the URL
+    if not video_title:
+        video_info = get_video_info_from_url(url)
+        if not video_info:
+            current_status["main"] = "Error"
+            current_status["sub"] = "Could not fetch video info from URL."
+            return {"title": "Error", "url": url, "summary": "Invalid YouTube URL or failed to fetch video info."}
+        video_id = video_info["video_id"]
+        video_title = video_info["title"]
+        safe_folder_name = video_info["safe_folder_name"]
+    else:
+        # If a title is provided, we still need the video_id for file naming
+        # and we create a safe folder name from the user's title
+        info = get_video_info_from_url(url) # We still need the ID
+        if not info:
+            current_status["main"] = "Error"
+            current_status["sub"] = "Could not fetch video info from URL."
+            return {"title": "Error", "url": url, "summary": "Invalid YouTube URL or failed to fetch video info."}
+        video_id = info["video_id"]
+        safe_folder_name = "".join(c for c in video_title if c.isalnum() or c in (' ', '_')).rstrip()
+
     # Use a similar directory structure as the main analysis
-    question_dir = BASE_OUTPUT_DIR / 'Single_URL' / video_info["safe_folder_name"]
+    question_dir = BASE_OUTPUT_DIR / 'Single_URL' / safe_folder_name
     subs_dir = question_dir / 'subs'
     audio_dir = question_dir / 'audio_files'
     transcripts_dir = question_dir / 'transcripts'
@@ -152,9 +194,7 @@ def run_analysis_for_url(url: str, language: str = 'en'):
     os.makedirs(transcripts_dir, exist_ok=True)
     os.makedirs(summary_dir, exist_ok=True)
 
-    video = {'url': url, 'title': video_title, 'video_id': video_id, 'query_lang': language}
     transcript_path = None
-    analysis_file_path = summary_dir / f"{video_id}_analysis.txt"
 
     # --- Main Processing Logic (adapted from run_analysis) ---
 
@@ -187,10 +227,9 @@ def run_analysis_for_url(url: str, language: str = 'en'):
                 print(f"Audio downloaded successfully: {audio_path}")
                 current_status["main"] = "Transcribing Audio"
                 current_status["sub"] = "This may take a few minutes..."
-                transcript_path = transcribe_audio_single(
+                transcript_path = await transcribe_audio_single(
                     audio_path=audio_path,
                     output_dir=str(transcripts_dir),
-                    model_params=None, # Pass None as model_params is no longer used by Gemini
                     language=language
                 )
                 print(f"Audio transcribed successfully: {transcript_path}")
@@ -200,55 +239,57 @@ def run_analysis_for_url(url: str, language: str = 'en'):
             print(f"Failed to process audio: {e}", file=sys.stderr)
             current_status["main"] = "Error"
             current_status["sub"] = "Failed to download or transcribe audio."
-            return {"status": "error", "message": f"Failed to process audio: {e}"}
+            return {"title": video_title, "url": url, "summary": f"Failed to process audio: {e}"}
 
     # 3. Analyze the final transcript (from subs or audio)
     if transcript_path:
         current_status["main"] = "Analyzing Transcript"
         current_status["sub"] = "Using AI to generate insights..."
         try:
+            transcript_filename = Path(transcript_path).stem
+            final_analysis_path = summary_dir / f"{transcript_filename}_summary.txt"
+
             if not SIMULATE_AI_PROCESSING:
-                # The function analyze_transcript_with_gemini saves the file internally
                 analyze_transcript_with_gemini(transcript_path)
                 print(f"AI analysis complete for {transcript_path}")
             else:
-                # Manually create the analysis file for simulation
-                with open(analysis_file_path, 'w', encoding='utf-8') as f:
+                with open(final_analysis_path, 'w', encoding='utf-8') as f:
                     f.write(f"[Simulated] Analysis for {video_title}")
                 print(f"Simulated AI analysis for {transcript_path}")
-
-            # The actual analysis file path is constructed inside analyze_transcript_with_gemini
-            # We need to reconstruct it here to return it.
-            # It's based on the transcript filename, in the summary folder.
-            transcript_filename = Path(transcript_path).stem
-            # Correctly look for the file with the `_summary.txt` suffix
-            final_analysis_path = summary_dir / f"{transcript_filename}_summary.txt"
             
             if not final_analysis_path.is_file():
-                # This is a fallback, but the primary path should now be correct.
-                raise FileNotFoundError(f"Could not find the generated analysis file for {transcript_filename}")
+                raise FileNotFoundError(f"Could not find the generated analysis file: {final_analysis_path}")
+
+            # Read the content of the summary file
+            summary_content = ""
+            with open(final_analysis_path, 'r', encoding='utf-8') as f:
+                summary_content = f.read()
 
             end_time = time.time()
             current_status["main"] = "Completed"
             current_status["sub"] = f"Total time: {end_time - start_time:.2f}s"
             print(f"--- Total Execution Time: {end_time - start_time:.2f} seconds ---")
+            
             return {
-                "status": "success",
-                "final_extracted_info_path": str(final_analysis_path)
+                "title": video_title,
+                "url": url,
+                "summary": summary_content
             }
         except Exception as e:
             print(f"An error occurred during AI analysis: {e}", file=sys.stderr)
             current_status["main"] = "Error"
             current_status["sub"] = "Failed during final AI analysis."
-            return {"status": "error", "message": f"AI analysis failed: {e}"}
+            return {"title": video_title, "url": url, "summary": f"AI analysis failed: {e}"}
     else:
         current_status["main"] = "Error"
         current_status["sub"] = "Could not generate a transcript."
-        return {"status": "error", "message": "Failed to generate a transcript from subtitles or audio."}
+        return {"title": video_title, "url": url, "summary": "Failed to generate a transcript from subtitles or audio."}
 
 
-def run_analysis(chinese_query: str, process_audio: bool = False):
-
+async def run_analysis(query: str, process_audio: bool = False, search_mode: str = 'divergent', search_language: str = 'zh'):
+    """
+    Main analysis pipeline for a given query.
+    """
     print("--- run_analysis: START ---")
     start_time = time.time()
 
@@ -261,8 +302,8 @@ def run_analysis(chinese_query: str, process_audio: bool = False):
         print("Searches using the Google API will fail.")
 
     current_status["main"] = "Fetching Video URLs"
-    current_status["sub"] = f"Searching for '{chinese_query}'..."
-    urls_json_path = step1_get_urls(chinese_query)
+    current_status["sub"] = f"Searching for '{query}'..."
+    urls_json_path = await step1_get_urls(query, search_mode, search_language)
 
     if not urls_json_path:
         print("No URLs to process. Exiting.")
@@ -377,36 +418,41 @@ def run_analysis(chinese_query: str, process_audio: bool = False):
                 current_status["sub"] = f"Video {i+1}/{len(videos_for_audio_download)}: {video['title']} - Error downloading audio."
                 print(f"Error downloading audio for {video['title']}: {e}", file=sys.stderr)
 
-        # 3. Batch STT for downloaded audio files
-        current_status["main"] = "Transcribing Audio"
+        # 3. Batch STT for downloaded audio files using asyncio for parallelism
+        current_status["main"] = "Transcribing Audio (Parallel)"
         print("\n--- Batch Transcription (STT) for downloaded audio files---\n")
-        for i, video in enumerate(audio_download_queue):
-            current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcribing..."
-            print(f"\n--- Transcribing audio for {video['title']} ({i+1}/{len(audio_download_queue)}) ---\n")
+        
+        transcription_tasks = []
+        for video in audio_download_queue:
             if video.get('audio_path'):
-                try:
-                    transcript_path = transcribe_audio_single(
-                        audio_path=video['audio_path'],
-                        output_dir=str(transcripts_dir),
-                        language=video.get('query_lang', 'zh')
-                    )
-                    if transcript_path:
-                        video['transcript_path'] = transcript_path
-                        current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription complete."
-                        print(f"轉錄完成，影片：{video['title']}")
-                        print("--- Adding a short delay to allow disk I/O to settle ---")
-                        time.sleep(2)
-                    else:
-                        video['transcription_failed'] = True
-                        current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Transcription failed."
-                        print(f"轉錄失敗，影片：{video['title']}")
-                except Exception as e:
-                    video['transcription_failed'] = True
-                    current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Error transcribing."
-                    print(f"Error transcribing audio for {video['title']}: {e}", file=sys.stderr)
+                task = transcribe_audio_single(
+                    audio_path=video['audio_path'],
+                    output_dir=str(transcripts_dir),
+                    language=video.get('query_lang', 'zh')
+                )
+                transcription_tasks.append(task)
             else:
-                current_status["sub"] = f"Video {i+1}/{len(audio_download_queue)}: {video['title']} - Skipping transcription (no audio)."
+                current_status["sub"] = f"Skipping transcription for {video['title']} (no audio)."
                 print(f"Skipping transcription for {video['title']}: No audio path found.")
+
+        if transcription_tasks:
+            current_status["sub"] = f"Transcribing {len(transcription_tasks)} audio files in parallel..."
+            # Run all transcription tasks concurrently
+            transcript_paths = await asyncio.gather(*transcription_tasks)
+
+            # Associate the returned paths with their videos
+            for i, video in enumerate(audio_download_queue):
+                if transcript_paths[i]:
+                    video['transcript_path'] = transcript_paths[i]
+                    current_status["sub"] = f"Transcription complete for: {video['title']}"
+                    print(f"Transcription successful for: {video['title']}")
+                else:
+                    video['transcription_failed'] = True
+                    current_status["sub"] = f"Transcription failed for: {video['title']}"
+                    print(f"Transcription failed for: {video['title']}")
+        
+        # Short delay to allow disk I/O to settle before AI analysis
+        time.sleep(2)
 
         # --- AI 處理：分析單個轉錄稿 (STT 轉錄後) ---
         current_status["main"] = "Analyzing STT Transcripts"
