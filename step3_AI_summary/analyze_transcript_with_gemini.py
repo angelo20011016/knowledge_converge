@@ -36,7 +36,7 @@ def analyze_transcript_with_gemini(transcript_path: str):
         print("Content analysis generated.")
     except Exception as e:
         print(f"Error generating content analysis: {e}")
-        analysis_text = ""
+        raise e
 
     # Determine output directory
     transcript_path_obj = Path(transcript_path)

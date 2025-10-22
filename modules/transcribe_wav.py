@@ -30,21 +30,21 @@ async def transcribe_audio_single(audio_path: str, output_dir: str, language: st
             raise ValueError("GEMINI_API_KEY not found in environment variables.")
         genai.configure(api_key=api_key)
 
-        # --- 2. Upload Audio File ---
-        upload_start_time = time.time()
-        print(f"Uploading: {Path(audio_path).name}...")
-        # Note: The current SDK's upload_file is synchronous.
-        # We run it in a thread pool to avoid blocking the asyncio event loop.
-        loop = asyncio.get_running_loop()
-        audio_file = await loop.run_in_executor(
-            None, lambda: genai.upload_file(path=audio_path)
-        )
-        print(f"Uploaded {Path(audio_path).name} in {time.time() - upload_start_time:.2f}s.")
+        # --- 2. Read Audio File ---
+        read_start_time = time.time()
+        print(f"Reading audio file: {Path(audio_path).name}...")
+        with open(audio_path, "rb") as f:
+            audio_data = f.read()
+        audio_file_data = {
+            'mime_type': 'audio/wav',
+            'data': audio_data
+        }
+        print(f"Read {Path(audio_path).name} in {time.time() - read_start_time:.2f}s.")
 
         # --- 3. Generate Content (Transcribe) ---
         generation_start_time = time.time()
         print(f"Requesting transcription for {Path(audio_path).name}...")
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
         
         prompt = (
             "Please provide a complete and accurate transcript of the audio provided. "
@@ -53,7 +53,7 @@ async def transcribe_audio_single(audio_path: str, output_dir: str, language: st
         ).format(language=language)
 
         response = await model.generate_content_async(
-            [prompt, audio_file],
+            [prompt, audio_file_data],
             request_options={"timeout": 900} # 15-minute timeout
         )
         
@@ -75,7 +75,7 @@ async def transcribe_audio_single(audio_path: str, output_dir: str, language: st
         import traceback
         print(f"An error occurred during async Gemini transcription for {Path(audio_path).name}: {e}")
         # traceback.print_exc() # This can be noisy in parallel runs
-        return None
+        raise e
 
 if __name__ == '__main__':
     # Example usage for standalone testing

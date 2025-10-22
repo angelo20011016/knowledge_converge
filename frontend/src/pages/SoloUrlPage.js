@@ -7,66 +7,111 @@ const SoloUrlPage = () => {
   const [title, setTitle] = useState('');
   const [language, setLanguage] = useState('en');
   
-  const [status, setStatus] = useState({ main: "Idle", sub: "" });
-  const [result, setResult] = useState(null);
+  // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('Idle');
 
   const pollingRef = useRef(null);
-  // const API_BASE_URL = "http://127.0.0.1:5000"; // No longer needed, proxied by Nginx
 
+  // Cleanup interval on component unmount
   useEffect(() => {
-    return () => clearInterval(pollingRef.current);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
   }, []);
 
-  const pollStatus = () => {
-    pollingRef.current = setInterval(() => {
-      fetch(`/api/get-result`) // Relative path
-        .then(res => res.ok ? res.json() : Promise.reject(res))
-        .then(data => {
-          if (data.individual_summaries || data.final_content) {
-            setResult(data);
-          }
-          if (data.status === "success") {
-            setIsLoading(false);
-            clearInterval(pollingRef.current);
-          } else if (data.status === "error") {
-            setError(data.message || "An unknown error occurred.");
-            setIsLoading(false);
-            clearInterval(pollingRef.current);
-          }
-          return fetch(`/status`); // Relative path
-        })
-        .then(res => res.ok ? res.json() : Promise.reject(res))
-        .then(statusData => setStatus(statusData))
-        .catch(() => {
-          setError("Failed to get results from the server.");
-          setIsLoading(false);
+  const pollJobResult = (jobId) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/get-job-result/${jobId}`);
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
+          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        setStatusMessage(`Job status: ${data.status}`);
+
+        if (data.status === 'success') {
           clearInterval(pollingRef.current);
-        });
-    }, 2000);
+          setIsLoading(false);
+          setResult(data.data); // The actual result is nested in the 'data' property
+          setError(null);
+        } else if (data.status === 'error') {
+          clearInterval(pollingRef.current);
+          setIsLoading(false);
+          setError(data.message || 'An unknown error occurred during analysis.');
+          setResult(null);
+        } else if (data.status === 'not_found') {
+          clearInterval(pollingRef.current);
+          setIsLoading(false);
+          setError(`Job ID ${jobId} not found. The job may have expired or never existed.`);
+          setResult(null);
+        }
+
+      } catch (err) {
+        clearInterval(pollingRef.current);
+        setIsLoading(false);
+        setError(err.message || 'Failed to poll for job results. Check network connection.');
+        setResult(null);
+      }
+    }, 3000); // Poll every 3 seconds
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!url) return;
+    if (!url || isLoading) return;
 
+    // Reset state for new submission
+    setIsLoading(true);
     setResult(null);
     setError(null);
-    setIsLoading(true);
-    setStatus({ main: "Initializing...", sub: "" });
-    clearInterval(pollingRef.current);
+    setStatusMessage('Starting analysis...');
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
 
-    fetch(`/api/summarize-url`, { // Relative path
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, title, language }),
-    })
-      .then(res => res.ok ? pollStatus() : Promise.reject(res))
-      .catch(() => {
-        setError("Failed to start analysis. Check server connection.");
-        setIsLoading(false);
+    try {
+      const response = await fetch(`/api/start-url-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title, language }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to start analysis.' }));
+        throw new Error(errorData.message || 'Server returned an error on job start.');
+      }
+
+      const data = await response.json();
+      
+      if (data.job_id) {
+        setStatusMessage('Analysis started, waiting for results...');
+        pollJobResult(data.job_id);
+      } else {
+        throw new Error('Server did not return a job ID.');
+      }
+
+    } catch (err) {
+      setError(err.message || 'Failed to start analysis. Check server connection.');
+      setIsLoading(false);
+      setStatusMessage('Idle');
+    }
+  };
+
+  const displayStatus = {
+      main: isLoading ? 'Analyzing' : (error ? 'Error' : (result ? 'Completed' : 'Idle')),
+      sub: statusMessage
   };
 
   return (
@@ -86,6 +131,7 @@ const SoloUrlPage = () => {
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://www.youtube.com/watch?v=..."
               required
+              disabled={isLoading}
             />
           </div>
           <div className="form-group">
@@ -96,6 +142,7 @@ const SoloUrlPage = () => {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Enter a title (if blank, it will be fetched automatically)"
+              disabled={isLoading}
             />
           </div>
           <div className="form-group">
@@ -104,20 +151,21 @@ const SoloUrlPage = () => {
               className="form-select"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
+              disabled={isLoading}
             >
               <option value="en">English (en)</option>
               <option value="zh">Chinese (zh)</option>
             </select>
           </div>
           <button type="submit" className="btn btn-primary w-100" disabled={isLoading}>
-            <FiZap /> {isLoading ? 'Analyzing...' : 'Start Analysis'}
+            <FiZap /> {isLoading ? statusMessage : 'Start Analysis'}
           </button>
         </form>
       </div>
 
       <ResultsDisplay 
         isLoading={isLoading}
-        status={status}
+        status={displayStatus} // Pass the simplified status object
         error={error}
         result={result}
       />

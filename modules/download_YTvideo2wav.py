@@ -85,10 +85,10 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None) -> str | 
                 time.sleep(delay)
             else:
                 print(f"Error downloading or converting audio for {url}: {e}", file=sys.stderr)
-                return None
+                raise e
         except Exception as e:
             print(f"An unexpected error occurred in download_audio: {e}", file=sys.stderr)
-            return None
+            raise e
             
     return None
 
