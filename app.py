@@ -84,15 +84,26 @@ def start_url_summary():
 def start_topic_search():
     """
     Starts the analysis for a topic search.
-    This endpoint is temporarily disabled until the main `run_analysis` function is refactored.
+    Returns a job_id to the client for polling the result.
     """
-    # The original `/analyze` endpoint has been renamed and temporarily disabled.
-    # To fully implement this, `main.py:run_analysis` needs a similar refactoring
-    # as `run_analysis_for_url` to support the job ID system.
-    return jsonify({
-        "status": "error", 
-        "message": "Topic search is temporarily disabled pending a backend refactor."
-    }), 501
+    data = request.get_json()
+    query = data.get('query')
+    process_audio = data.get('process_audio', True)
+    search_mode = data.get('search_mode', 'divergent')
+    search_language = data.get('search_language', 'zh')
+
+    if not query:
+        return jsonify({"error": "Query parameter is missing"}), 400
+
+    job_id = str(uuid.uuid4())
+    
+    thread = threading.Thread(
+        target=run_analysis_in_background,
+        args=(job_id, run_analysis, query, process_audio, search_mode, search_language, job_id)
+    )
+    thread.start()
+    
+    return jsonify({"job_id": job_id}), 202
 
 
 @app.route('/api/get-job-result/<job_id>')
@@ -106,19 +117,24 @@ def get_job_result(job_id):
         return jsonify({"status": "not_found"}), 404
     
     if job['status'] == 'success':
-        # The result from `run_analysis_for_url` is already structured.
-        # We format it here to match the frontend's expected data structure.
         result_data = job.get('result', {})
-        summary_item = {
-            "title": result_data.get("title"),
-            "url": result_data.get("url"),
-            "summary": result_data.get("summary")
-        }
         
-        formatted_result = {
-            "final_content": result_data.get("summary"),
-            "individual_summaries": [summary_item] if summary_item.get("summary") else []
-        }
+        # Differentiate between single URL and topic search results
+        if 'final_content' in result_data and 'individual_summaries' in result_data:
+            # This is a result from `run_analysis` (topic search), which is already in the correct format.
+            formatted_result = result_data
+        else:
+            # This is a result from `run_analysis_for_url` (single URL). Format it.
+            summary_item = {
+                "title": result_data.get("title"),
+                "url": result_data.get("url"),
+                "summary": result_data.get("summary")
+            }
+            formatted_result = {
+                "final_content": result_data.get("summary"),
+                "individual_summaries": [summary_item] if summary_item.get("summary") else []
+            }
+        
         return jsonify({"status": "success", "data": formatted_result})
 
     else:

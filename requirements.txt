@@ -7,3 +7,5 @@ google-api-python-client
 isodate
 google-generativeai
 gunicorn
+Flask-SQLAlchemy
+Flask-Migrate

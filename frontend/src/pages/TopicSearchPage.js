@@ -5,73 +5,117 @@ import ResultsDisplay from '../components/ResultsDisplay';
 const TopicSearchPage = () => {
   const [query, setQuery] = useState('');
   const [searchMode, setSearchMode] = useState('divergent');
-  const [searchLanguage, setSearchLanguage] = useState('zh-TW');
+  const [searchLanguage, setSearchLanguage] = useState('zh');
 
-  const [status, setStatus] = useState({ main: "Idle", sub: "" });
-  const [result, setResult] = useState(null);
+  // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('Idle');
 
   const pollingRef = useRef(null);
-  // const API_BASE_URL = "http://127.0.0.1:5000"; // No longer needed, proxied by Nginx
 
+  // Cleanup interval on component unmount
   useEffect(() => {
-    return () => clearInterval(pollingRef.current);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
   }, []);
 
-  const pollStatus = () => {
-    pollingRef.current = setInterval(() => {
-      fetch(`/api/get-result`)
-        .then(res => res.ok ? res.json() : Promise.reject(res))
-        .then(data => {
-          if (data.individual_summaries || data.final_content) {
-            setResult(data);
-          }
-          if (data.status === "success") {
-            setIsLoading(false);
-            clearInterval(pollingRef.current);
-          } else if (data.status === "error") {
-            setError(data.message || "An unknown error occurred.");
-            setIsLoading(false);
-            clearInterval(pollingRef.current);
-          }
-          return fetch(`/status`);
-        })
-        .then(res => res.ok ? res.json() : Promise.reject(res))
-        .then(statusData => setStatus(statusData))
-        .catch(() => {
-          setError("Failed to get results from the server.");
-          setIsLoading(false);
+  const pollJobResult = (jobId) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/get-job-result/${jobId}`);
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
+          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        setStatusMessage(`Job status: ${data.status}`);
+
+        if (data.status === 'success') {
           clearInterval(pollingRef.current);
-        });
-    }, 2000);
+          setIsLoading(false);
+          setResult(data.data);
+          setError(null);
+        } else if (data.status === 'error') {
+          clearInterval(pollingRef.current);
+          setIsLoading(false);
+          setError(data.message || 'An unknown error occurred during analysis.');
+          setResult(null);
+        } else if (data.status === 'not_found') {
+          clearInterval(pollingRef.current);
+          setIsLoading(false);
+          setError(`Job ID ${jobId} not found. The job may have expired or never existed.`);
+          setResult(null);
+        }
+
+      } catch (err) {
+        clearInterval(pollingRef.current);
+        setIsLoading(false);
+        setError(err.message || 'Failed to poll for job results. Check network connection.');
+        setResult(null);
+      }
+    }, 3000); // Poll every 3 seconds
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!query) return;
+    if (!query || isLoading) return;
 
+    setIsLoading(true);
     setResult(null);
     setError(null);
-    setIsLoading(true);
-    setStatus({ main: "Initializing...", sub: "" });
-    clearInterval(pollingRef.current);
+    setStatusMessage('Starting analysis...');
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
 
-    fetch(`/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        query, 
-        process_audio: true,
-        search_mode: searchMode,
-        search_language: searchLanguage
-      }),
-    })
-      .then(res => res.ok ? pollStatus() : Promise.reject(res))
-      .catch(() => {
-        setError("Failed to start analysis. Check server connection.");
-        setIsLoading(false);
+    try {
+      const response = await fetch(`/api/start-topic-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          query, 
+          process_audio: true,
+          search_mode: searchMode,
+          search_language: searchLanguage
+        }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to start analysis.' }));
+        throw new Error(errorData.message || 'Server returned an error on job start.');
+      }
+
+      const data = await response.json();
+      
+      if (data.job_id) {
+        setStatusMessage('Analysis started, waiting for results...');
+        pollJobResult(data.job_id);
+      } else {
+        throw new Error('Server did not return a job ID.');
+      }
+
+    } catch (err) {
+      setError(err.message || 'Failed to start analysis. Check server connection.');
+      setIsLoading(false);
+      setStatusMessage('Idle');
+    }
+  };
+
+  const displayStatus = {
+    main: isLoading ? 'Synthesizing' : (error ? 'Error' : (result ? 'Completed' : 'Idle')),
+    sub: statusMessage
   };
 
   return (
@@ -91,19 +135,20 @@ const TopicSearchPage = () => {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g., 'Quantum Computing Explained'"
               required
+              disabled={isLoading}
             />
           </div>
           
           <div className="form-group">
             <label className="form-label">Search Mode</label>
             <div className="form-check">
-              <input className="form-check-input" type="radio" name="searchMode" id="divergent" value="divergent" checked={searchMode === 'divergent'} onChange={(e) => setSearchMode(e.target.value)} />
+              <input className="form-check-input" type="radio" name="searchMode" id="divergent" value="divergent" checked={searchMode === 'divergent'} onChange={(e) => setSearchMode(e.target.value)} disabled={isLoading} />
               <label className="form-check-label" htmlFor="divergent">
                 Divergent (5 Chinese + 5 English results)
               </label>
             </div>
             <div className="form-check">
-              <input className="form-check-input" type="radio" name="searchMode" id="focused" value="focused" checked={searchMode === 'focused'} onChange={(e) => setSearchMode(e.target.value)} />
+              <input className="form-check-input" type="radio" name="searchMode" id="focused" value="focused" checked={searchMode === 'focused'} onChange={(e) => setSearchMode(e.target.value)} disabled={isLoading} />
               <label className="form-check-label" htmlFor="focused">
                 Focused (10 results in one language)
               </label>
@@ -118,8 +163,9 @@ const TopicSearchPage = () => {
                 className="form-select"
                 value={searchLanguage}
                 onChange={(e) => setSearchLanguage(e.target.value)}
+                disabled={isLoading}
               >
-                <option value="zh-TW">Chinese - Traditional (zh-TW)</option>
+                <option value="zh">Chinese (zh)</option>
                 <option value="en">English (en)</option>
                 <option value="ja">Japanese (ja)</option>
                 <option value="ko">Korean (ko)</option>
@@ -128,14 +174,14 @@ const TopicSearchPage = () => {
           )}
 
           <button type="submit" className="btn btn-primary w-100" disabled={isLoading}>
-            <FiSearch /> {isLoading ? 'Synthesizing...' : 'Search and Synthesize'}
+            <FiSearch /> {isLoading ? statusMessage : 'Search and Synthesize'}
           </button>
         </form>
       </div>
 
       <ResultsDisplay 
         isLoading={isLoading}
-        status={status}
+        status={displayStatus}
         error={error}
         result={result}
       />

@@ -11,7 +11,7 @@ services:
     ports:
       - "5001:5000"
     volumes:
-      - ./output:/app/output
+      - ./:/app
 
   frontend:
     build:
