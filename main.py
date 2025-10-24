@@ -135,7 +135,7 @@ def get_video_info_from_url(url: str) -> dict | None:
         print(f"Error fetching video info from URL {url} using yt-dlp: {e}", file=sys.stderr)
         return None
 
-async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en', job_id: str | None = None):
+async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en', job_id: str | None = None, template_content: str | None = None, user_additional_prompt: str | None = None):
     """
     Runs the analysis pipeline for a single YouTube URL.
     Accepts an optional title; if not provided, it will be fetched from YouTube.
@@ -212,12 +212,17 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
         final_analysis_path = ""
 
         if not SIMULATE_AI_PROCESSING:
-            analysis_result = analyze_transcript_with_gemini(transcript_path)
+            analysis_result = analyze_transcript_with_gemini(transcript_path, template_content, user_additional_prompt)
             final_analysis_path = analysis_result.get("analysis_path")
+            summary_content = analysis_result.get("summary_content")
+            full_transcript_content = analysis_result.get("transcript_content")
+
             if not final_analysis_path or not Path(final_analysis_path).is_file():
                  raise FileNotFoundError(f"Could not find the generated analysis file at {final_analysis_path}")
-            with open(final_analysis_path, 'r', encoding='utf-8') as f:
-                summary_content = f.read()
+            if not summary_content:
+                raise ValueError("AI analysis did not return summary content.")
+            if not full_transcript_content:
+                raise ValueError("AI analysis did not return full transcript content.")
         else:
             # Simulate analysis
             transcript_filename = Path(transcript_path).stem
@@ -236,7 +241,8 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
                 "title": video_title,
                 "url": url,
                 "summary": summary_content,
-                "final_content_path": str(final_analysis_path)
+                "final_content_path": str(final_analysis_path),
+                "full_transcript": full_transcript_content
             }
         }
 
@@ -257,7 +263,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
                 print(f"Error removing audio file {audio_path}: {e}", file=sys.stderr)
 
 
-async def run_analysis(query: str, process_audio: bool = False, search_mode: str = 'divergent', search_language: str = 'zh', job_id: str | None = None):
+async def run_analysis(query: str, process_audio: bool = False, search_mode: str = 'divergent', search_language: str = 'zh', job_id: str | None = None, template_content: str | None = None, user_additional_prompt: str | None = None):
     """
     Main analysis pipeline for a given query, adapted for the Job ID system.
     """
@@ -343,7 +349,7 @@ async def run_analysis(query: str, process_audio: bool = False, search_mode: str
         for video in videos_to_process:
             if video.get('transcript_path'):
                 if not SIMULATE_AI_PROCESSING:
-                    analyze_transcript_with_gemini(video['transcript_path'])
+                    analyze_transcript_with_gemini(video['transcript_path'], template_content, user_additional_prompt)
                 else:
                     # Simulation logic
                     sim_path = summary_dir / f"{Path(video['transcript_path']).stem}_summary.txt"
@@ -371,10 +377,17 @@ async def run_analysis(query: str, process_audio: bool = False, search_mode: str
                 if video_info:
                     with open(summary_file, 'r', encoding='utf-8') as f:
                         summary_content = f.read()
+                    
+                    full_transcript_content = ""
+                    if video_info.get('transcript_path') and Path(video_info['transcript_path']).is_file():
+                        with open(video_info['transcript_path'], 'r', encoding='utf-8') as f_transcript:
+                            full_transcript_content = f_transcript.read()
+
                     individual_summaries.append({
                         "title": video_info['title'],
                         "url": video_info['url'],
-                        "summary": summary_content
+                        "summary": summary_content,
+                        "full_transcript": full_transcript_content
                     })
 
         end_time = time.time()

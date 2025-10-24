@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y ffmpeg
 
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --upgrade yt-dlp
 
 # Copy the rest of the application's code
 COPY . .

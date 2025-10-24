@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiSearch } from 'react-icons/fi';
 import ResultsDisplay from '../components/ResultsDisplay';
+import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001';
 
 const TopicSearchPage = () => {
   const [query, setQuery] = useState('');
   const [searchMode, setSearchMode] = useState('divergent');
   const [searchLanguage, setSearchLanguage] = useState('zh');
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
 
   // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
@@ -14,6 +19,23 @@ const TopicSearchPage = () => {
   const [statusMessage, setStatusMessage] = useState('Idle');
 
   const pollingRef = useRef(null);
+
+  // Fetch templates on component mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/templates`);
+        setTemplates(response.data);
+        if (response.data.length > 0) {
+          // Set a default, but allow "No Template"
+          setSelectedTemplateId(''); 
+        }
+      } catch (err) {
+        console.error("Error fetching templates:", err);
+      }
+    };
+    fetchTemplates();
+  }, []);
 
   // Cleanup interval on component unmount
   useEffect(() => {
@@ -31,7 +53,7 @@ const TopicSearchPage = () => {
 
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/get-job-result/${jobId}`);
+        const res = await fetch(`${API_BASE_URL}/api/get-job-result/${jobId}`);
         
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
@@ -81,14 +103,15 @@ const TopicSearchPage = () => {
     }
 
     try {
-      const response = await fetch(`/api/start-topic-search`, {
+      const response = await fetch(`${API_BASE_URL}/api/start-topic-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           query, 
           process_audio: true,
           search_mode: searchMode,
-          search_language: searchLanguage
+          search_language: searchLanguage,
+          template_id: selectedTemplateId
         }),
       });
 
@@ -169,6 +192,26 @@ const TopicSearchPage = () => {
                 <option value="en">English (en)</option>
                 <option value="ja">Japanese (ja)</option>
                 <option value="ko">Korean (ko)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Template Selection Dropdown */}
+          {templates.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">Select Template (Optional)</label>
+              <select
+                className="form-select"
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                disabled={isLoading}
+              >
+                <option value="">-- No Template --</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
               </select>
             </div>
           )}

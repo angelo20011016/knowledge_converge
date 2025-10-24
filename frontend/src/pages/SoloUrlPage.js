@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiZap } from 'react-icons/fi';
 import ResultsDisplay from '../components/ResultsDisplay';
+import axios from 'axios'; // Import axios
+
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001'; // Use 5001 for direct backend access
 
 const SoloUrlPage = () => {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [language, setLanguage] = useState('en');
+  const [templates, setTemplates] = useState([]); // State for templates
+  const [selectedTemplateId, setSelectedTemplateId] = useState(''); // State for selected template
   
   // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
@@ -14,6 +19,23 @@ const SoloUrlPage = () => {
   const [statusMessage, setStatusMessage] = useState('Idle');
 
   const pollingRef = useRef(null);
+
+  // Fetch templates on component mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/templates`);
+        setTemplates(response.data);
+        if (response.data.length > 0) {
+          setSelectedTemplateId(response.data[0].id); // Select the first template by default
+        }
+      } catch (err) {
+        console.error("Error fetching templates:", err);
+        // Optionally set an error state for the user
+      }
+    };
+    fetchTemplates();
+  }, []);
 
   // Cleanup interval on component unmount
   useEffect(() => {
@@ -31,7 +53,7 @@ const SoloUrlPage = () => {
 
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/get-job-result/${jobId}`);
+        const res = await fetch(`${API_BASE_URL}/api/get-job-result/${jobId}`);
         
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
@@ -82,10 +104,10 @@ const SoloUrlPage = () => {
     }
 
     try {
-      const response = await fetch(`/api/start-url-summary`, {
+      const response = await fetch(`${API_BASE_URL}/api/start-url-summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, title, language }),
+        body: JSON.stringify({ url, title, language, template_id: selectedTemplateId }), // Pass selected template ID
       });
 
       if (!response.ok) {
@@ -157,6 +179,27 @@ const SoloUrlPage = () => {
               <option value="zh">Chinese (zh)</option>
             </select>
           </div>
+
+          {/* Template Selection Dropdown */}
+          {templates.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">Select Template (Optional)</label>
+              <select
+                className="form-select"
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                disabled={isLoading}
+              >
+                <option value="">-- No Template --</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <button type="submit" className="btn btn-primary w-100" disabled={isLoading}>
             <FiZap /> {isLoading ? statusMessage : 'Start Analysis'}
           </button>

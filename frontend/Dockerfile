@@ -3,8 +3,9 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json package-lock.json* ./
+# Use npm install instead of npm ci to avoid lock file version conflicts
+RUN npm install
 COPY . ./
 RUN npm run build
 

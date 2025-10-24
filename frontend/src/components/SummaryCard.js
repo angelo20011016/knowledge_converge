@@ -3,23 +3,7 @@ import { FiDownload } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const SummaryCard = ({ title, url, summary, index }) => {
-  const handleDownload = () => {
-    // Prepare the content with title and URL
-    const fileContent = `Title: ${title}\nURL: ${url}\n\n---\n\n${summary}`;
-    const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    // Replace characters that are invalid in filenames with an underscore, but keep the full title
-    const safeFileName = title.replace(/[\\/:*?"<>|]/g, '_');
-    link.download = `${safeFileName}.txt`;
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-  };
-
+const SummaryCard = ({ title, url, summary, fullTranscript, index, handleDownload }) => {
   const collapseId = `collapse-${index}`;
 
   return (
@@ -33,14 +17,29 @@ const SummaryCard = ({ title, url, summary, index }) => {
         <div className="accordion-body">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <p className="mb-0"><strong>Source:</strong> <a href={url} target="_blank" rel="noopener noreferrer" title={url}>{url.length > 50 ? `${url.slice(0, 50)}...` : url}</a></p>
-            <button onClick={handleDownload} className="btn btn-outline-primary btn-sm">
-              <FiDownload /> Download
-            </button>
+            <div>
+              {fullTranscript && (
+                <button onClick={() => handleDownload(fullTranscript, `${title || 'transcript'}_transcript.txt`)} className="btn btn-outline-secondary btn-sm me-2">
+                  <FiDownload /> Download Transcript
+                </button>
+              )}
+              {summary && (
+                <button onClick={() => handleDownload(summary, `${title || 'summary'}.txt`)} className="btn btn-outline-primary btn-sm">
+                  <FiDownload /> Download Summary
+                </button>
+              )}
+            </div>
           </div>
           <hr />
-          <div className="markdown-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
-          </div>
+          {summary && (
+            <>
+              <h4>Summary</h4>
+              <div className="markdown-content mb-3">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+              </div>
+            </>
+          )}
+          
         </div>
       </div>
     </div>

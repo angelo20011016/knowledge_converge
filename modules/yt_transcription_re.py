@@ -28,7 +28,11 @@ def _clean_vtt_content(vtt_content: str) -> str:
         # Timestamp lines indicate the end of a caption block
         if "-->" in line:
             if text_buffer:
-                cleaned_lines.append(" ".join(text_buffer))
+                # Join buffered text, remove timestamps like "00:01", and add to cleaned_lines
+                processed_text = " ".join(text_buffer)
+                processed_text = re.sub(r'\b\d{2}:\d{2}(:\d{2})?\b', '', processed_text).strip()
+                if processed_text:
+                    cleaned_lines.append(processed_text)
                 text_buffer = []
             continue
         
@@ -38,16 +42,26 @@ def _clean_vtt_content(vtt_content: str) -> str:
 
         # Remove VTT tags and collect text
         cleaned_line = re.sub(r"<[^>]+>", "", line).strip()
+        # Remove timestamps like "00:01" that might be embedded in the text
+        cleaned_line = re.sub(r'\b\d{2}:\d{2}(:\d{2})?\b', '', cleaned_line).strip()
+        
         if cleaned_line:
             text_buffer.append(cleaned_line)
 
     # Add the last buffered text
     if text_buffer:
-        cleaned_lines.append(" ".join(text_buffer))
+        processed_text = " ".join(text_buffer)
+        processed_text = re.sub(r'\b\d{2}:\d{2}(:\d{2})?\b', '', processed_text).strip()
+        if processed_text:
+            cleaned_lines.append(processed_text)
         
-    # Remove duplicate lines while preserving order
+    # Remove duplicate lines while preserving order and ensure single newlines
     seen = set()
-    unique_lines = [x for x in cleaned_lines if not (x in seen or seen.add(x))]
+    unique_lines = []
+    for x in cleaned_lines:
+        if x and x not in seen: # Also ensure line is not empty after cleaning
+            unique_lines.append(x)
+            seen.add(x)
 
     return "\n".join(unique_lines)
 

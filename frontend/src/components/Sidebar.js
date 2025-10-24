@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { FiLink, FiSearch, FiCpu } from 'react-icons/fi';
+import { FiLink, FiSearch, FiCpu, FiSettings } from 'react-icons/fi'; // Import FiSettings
 import './Sidebar.css'; // Import a dedicated CSS file for the sidebar
 
 const Sidebar = () => (
@@ -25,6 +25,13 @@ const Sidebar = () => (
       >
         <FiSearch className="nav-icon" />
         <span>Topic Synthesis</span>
+      </NavLink>
+      <NavLink 
+        to="/templates" 
+        className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
+      >
+        <FiSettings className="nav-icon" />
+        <span>Manage Templates</span>
       </NavLink>
     </nav>
   </aside>
