@@ -7,7 +7,6 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:500
 
 const SoloUrlPage = () => {
   const [url, setUrl] = useState('');
-  const [title, setTitle] = useState('');
   const [language, setLanguage] = useState('en');
   const [templates, setTemplates] = useState([]); // State for templates
   const [selectedTemplateId, setSelectedTemplateId] = useState(''); // State for selected template
@@ -107,7 +106,7 @@ const SoloUrlPage = () => {
       const response = await fetch(`${API_BASE_URL}/api/start-url-summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, title, language, template_id: selectedTemplateId }), // Pass selected template ID
+        body: JSON.stringify({ url, language, template_id: selectedTemplateId }), // Pass selected template ID
       });
 
       if (!response.ok) {
@@ -156,17 +155,7 @@ const SoloUrlPage = () => {
               disabled={isLoading}
             />
           </div>
-          <div className="form-group">
-            <label className="form-label">Custom Title (Optional)</label>
-            <input
-              type="text"
-              className="form-control"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter a title (if blank, it will be fetched automatically)"
-              disabled={isLoading}
-            />
-          </div>
+          
           <div className="form-group">
             <label className="form-label">Video Language</label>
             <select

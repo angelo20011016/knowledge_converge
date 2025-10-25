@@ -80,54 +80,89 @@ const TemplateManagementPage = () => {
   };
 
   return (
-    <div className="template-management-page">
-      <h2>Manage Your Custom Templates</h2>
-      {error && <div className="error-message">{error}</div>}
-      {success && <div className="success-message">{success}</div>}
+    <div className="container mt-4">
+      <header className="page-header">
+        <h2>Manage Your Custom Templates</h2>
+        <p>Create, edit, and delete templates for AI analysis prompts.</p>
+      </header>
 
-      <form onSubmit={handleCreateUpdateTemplate} className="template-form">
-        <input
-          type="text"
-          placeholder="Template Name"
-          value={templateName}
-          onChange={(e) => setTemplateName(e.target.value)}
-          required
-        />
-        <textarea
-          placeholder="Template Content (e.g., 'Summarize this video in 3 bullet points...')"
-          value={templateContent}
-          onChange={(e) => setTemplateContent(e.target.value)}
-          rows="6"
-          required
-        ></textarea>
-        <button type="submit">
-          <FiPlusCircle /> {editingTemplate ? 'Update Template' : 'Create New Template'}
-        </button>
-        {editingTemplate && (
-          <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateContent(''); setError(''); setSuccess(''); }}>
-            Cancel Edit
-          </button>
-        )}
-      </form>
+      {error && <div className="alert alert-danger">{error}</div>}
+      {success && <div className="alert alert-success">{success}</div>}
 
-      <h3>Your Templates</h3>
+      <div className="glass-card mb-4 p-4">
+        <h3>{editingTemplate ? 'Edit Template' : 'Create New Template'}</h3>
+        <form onSubmit={handleCreateUpdateTemplate}>
+          <div className="mb-3">
+            <label htmlFor="templateName" className="form-label">Template Name</label>
+            <input
+              type="text"
+              className="form-control"
+              id="templateName"
+              placeholder="e.g., 'Summarize in 3 bullet points'"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label htmlFor="templateContent" className="form-label">Template Content</label>
+            <textarea
+              className="form-control"
+              id="templateContent"
+              placeholder="e.g., 'Summarize this video in 3 bullet points, focusing on key takeaways and action items.'"
+              value={templateContent}
+              onChange={(e) => setTemplateContent(e.target.value)}
+              rows="6"
+              required
+            ></textarea>
+          </div>
+          <div className="d-flex justify-content-end">
+            {editingTemplate && (
+              <button 
+                type="button" 
+                className="btn btn-secondary me-2" 
+                onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateContent(''); setError(''); setSuccess(''); }}
+              >
+                Cancel Edit
+              </button>
+            )}
+            <button type="submit" className="btn btn-primary">
+              <FiPlusCircle className="me-2" /> {editingTemplate ? 'Update Template' : 'Create Template'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <h3 className="mb-3">Your Saved Templates</h3>
       {templates.length === 0 ? (
-        <p>No templates found. Create one above!</p>
+        <div className="glass-card p-4 text-center">
+          <p className="mb-0">No templates found. Create one above!</p>
+        </div>
       ) : (
-        <ul className="template-list">
+        <div className="row">
           {templates.map((template) => (
-            <li key={template.id} className="template-item">
-              <div className="template-details">
-                <h4>{template.name}</h4>
-                <p>{template.content.substring(0, 100)}...</p>
+            <div key={template.id} className="col-md-6 col-lg-4 mb-4">
+              <div className="glass-card h-100 p-3 d-flex flex-column">
+                <h5 className="mb-2">{template.name}</h5>
+                <p className="text-muted small flex-grow-1">{template.content.substring(0, 150)}{template.content.length > 150 ? '...' : ''}</p>
+                <div className="d-flex justify-content-end mt-3">
+                  <button 
+                    className="btn btn-sm btn-outline-primary me-2" 
+                    onClick={() => handleEdit(template)}
+                  >
+                    <FiEdit /> Edit
+                  </button>
+                  <button 
+                    className="btn btn-sm btn-outline-danger" 
+                    onClick={() => handleDelete(template.id)}
+                  >
+                    <FiTrash /> Delete
+                  </button>
+                </div>
               </div>
-              <div className="template-actions">
-                <button onClick={() => handleEdit(template)}><FiEdit /> Edit</button>
-                <button onClick={() => handleDelete(template.id)}><FiTrash /> Delete</button>
-              </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
