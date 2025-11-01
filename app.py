@@ -3,62 +3,65 @@ import threading
 import uuid
 from pathlib import Path
 import sys
+from functools import wraps
 from flask_cors import CORS
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, url_for, redirect
 import os
-import re # Keep re for URL validation
+import re
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from datetime import datetime # Import datetime for Template model
+from datetime import datetime, timedelta, date
+import jwt
+from werkzeug.security import generate_password_hash, check_password_hash
+from authlib.integrations.flask_client import OAuth
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the project root to the Python path to import main
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
 
 # Import the refactored main functions
-from main import run_analysis, run_analysis_for_url
+from main import run_analysis_for_url
 
 # --- Job Management ---
-# A thread-safe dictionary to store the status and results of background jobs.
 JOBS = {}
 
 app = Flask(__name__)
-CORS(app) # Enable CORS for frontend communication
+CORS(app)
 
-# --- Database Configuration ---
+# --- Configuration ---
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-super-secret-key-and-you-should-change-it')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(project_root, 'project.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-from models import db, Template
-db.init_app(app)
+app.config['SERVER_NAME'] = os.getenv('FLASK_SERVER_NAME')
+app.config['GOOGLE_CLIENT_ID'] = os.getenv('GOOGLE_CLIENT_ID')
+app.config['GOOGLE_CLIENT_SECRET'] = os.getenv('GOOGLE_CLIENT_SECRET')
 
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+from models import db, Template, User, IPUsage
+db.init_app(app)
 migrate = Migrate(app, db)
 
-# --- Helper function for the analysis thread ---
-def run_analysis_in_background(job_id, analysis_func, *args, **kwargs):
-    """
-    Wrapper to run an analysis function, update the JOBS dict, and handle errors.
-    """
-    print(f"Thread started for job_id: {job_id}")
-    try:
-        # Initialize status
-        JOBS[job_id] = {"status": "running", "result": None}
-        
-        # Run the async analysis function
-        result = asyncio.run(analysis_func(*args, **kwargs))
-        
-        # Store the final result
-        if result.get("status") == "success":
-            JOBS[job_id] = {"status": "success", "result": result.get("result")}
-        else:
-            JOBS[job_id] = {"status": "error", "message": result.get("message", "An unknown error occurred.")}
-        
-        print(f"Thread finished for job_id: {job_id}, status: {JOBS[job_id]['status']}")
+# --- OAuth Configuration ---
+CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
+oauth = OAuth(app)
+oauth.register(
+    name='google',
+    client_id=app.config["GOOGLE_CLIENT_ID"],
+    client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+    server_metadata_url=CONF_URL,
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
 
-    except Exception as e:
-        import traceback
-        print(f"An unhandled exception occurred in thread for job {job_id}: {e}")
-        traceback.print_exc()
-        JOBS[job_id] = {"status": "error", "message": str(e)}
+
+
+
 
 # --- API Routes ---
 
@@ -66,18 +69,34 @@ def run_analysis_in_background(job_id, analysis_func, *args, **kwargs):
 def index():
     return "Video Knowledge Convergence Backend is running!"
 
+# Decorator for JWT token verification
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'x-access-tokens' in request.headers:
+            token = request.headers['x-access-tokens']
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = User.query.filter_by(id=data['sub']).first()
+            if not current_user:
+                return jsonify({'message': 'Token is invalid!'}), 401
+        except Exception as e:
+            return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated
+
 @app.route('/api/start-url-summary', methods=['POST'])
-def start_url_summary():
-    """
-    Starts the analysis for a single YouTube URL.
-    Returns a job_id to the client for polling the result.
-    """
+@token_required
+def start_url_summary(current_user):
     data = request.get_json()
     url = data.get('url')
     title = data.get('title') 
     language = data.get('language', 'en')
-    template_id = data.get('template_id') # Get template_id
-    user_additional_prompt = data.get('user_additional_prompt') # Get user_additional_prompt
+    template_id = data.get('template_id')
+    user_additional_prompt = data.get('user_additional_prompt')
 
     template_content = None
     if template_id:
@@ -90,91 +109,102 @@ def start_url_summary():
     if not url:
         return jsonify({"error": "URL parameter is missing"}), 400
 
-    # URL validation (ensure this regex is correct) - Temporarily disabled for debugging
-    # url_pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]+(?:&[\w-]+=["w-]+)*
-
-    job_id = str(uuid.uuid4())
-    
-    # Pass the template_content to the analysis function
-    thread = threading.Thread(
-        target=run_analysis_in_background,
-        args=(job_id, run_analysis_for_url, url, title, language, job_id, template_content, user_additional_prompt)
-    )
-    thread.start()
-    
-    # Immediately return the job_id
-    return jsonify({"job_id": job_id}), 202
-
-@app.route('/api/start-topic-search', methods=['POST'])
-def start_topic_search():
-    """
-    Starts the analysis for a topic search.
-    Returns a job_id to the client for polling the result.
-    """
-    data = request.get_json()
-    query = data.get('query')
-    process_audio = data.get('process_audio', True)
-    search_mode = data.get('search_mode', 'divergent')
-    search_language = data.get('search_language', 'zh')
-    template_id = data.get('template_id') # Get template_id
-    user_additional_prompt = data.get('user_additional_prompt') # Get user_additional_prompt
-
-    template_content = None
-    if template_id:
-        template = Template.query.get(template_id)
-        if template:
-            template_content = template.content
+    # Directly call the analysis function, making it a blocking request
+    try:
+        result = asyncio.run(run_analysis_for_url(
+            user_id=current_user.id, # Pass user_id
+            url=url,
+            title=title,
+            language=language,
+            template_content=template_content,
+            user_additional_prompt=user_additional_prompt
+        ))
+        if result.get("status") == "success":
+            return jsonify(result)
         else:
-            return jsonify({"error": "Template not found"}), 404
+            return jsonify({"error": result.get("message", "An unknown error occurred.")}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
-    if not query:
-        return jsonify({"error": "Query parameter is missing"}), 400
-
-    job_id = str(uuid.uuid4())
-    
-    # Pass the template_content to the analysis function
-    thread = threading.Thread(
-        target=run_analysis_in_background,
-        args=(job_id, run_analysis, query, process_audio, search_mode, search_language, job_id, template_content, user_additional_prompt)
-    )
-    thread.start()
-    
-    # Remove this line as it is outside of any function and causes a syntax error.
-
-
+# The get-job-result endpoint is no longer needed for this simplified flow
 @app.route('/api/get-job-result/<job_id>')
 def get_job_result(job_id):
-    """
-    Pollable endpoint for the frontend to get the status and result of a job.
-    """
-    job = JOBS.get(job_id)
-    
-    if not job:
-        return jsonify({"status": "not_found"}), 404
-    
-    if job['status'] == 'success':
-        result_data = job.get('result', {})
-        
-        # Differentiate between single URL and topic search results
-        if 'final_content' in result_data and 'individual_summaries' in result_data:
-            # This is a result from `run_analysis` (topic search), which is already in the correct format.
-            # individual_summaries now contains full_transcript
-            formatted_result = result_data
-        else:
-            # This is a result from `run_analysis_for_url` (single URL). Format it.
-            # It now directly returns summary and full_transcript
-            formatted_result = {
-                "title": result_data.get("title"),
-                "url": result_data.get("url"),
-                "summary": result_data.get("summary"),
-                "full_transcript": result_data.get("full_transcript")
-            }
-        
-        return jsonify({"status": "success", "data": formatted_result})
+    return jsonify({"status": "deprecated"}), 404
 
-    else:
-        # Return other statuses like 'running', 'error', 'starting'
-        return jsonify(job)
+# --- User Authentication API ---
+
+@app.route('/api/login/google')
+def google_login():
+    redirect_uri = url_for('google_auth_callback', _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+@app.route('/api/auth/google')
+def google_auth_callback():
+    token = oauth.google.authorize_access_token()
+    user_info = oauth.google.userinfo()
+    sso_id = user_info['sub']
+    email = user_info['email']
+
+    user = User.query.filter_by(sso_id=sso_id).first()
+    if not user:
+        user = User.query.filter_by(username=email).first()
+        if not user:
+            user = User(username=email, sso_id=sso_id)
+            db.session.add(user)
+        else:
+            user.sso_id = sso_id
+        db.session.commit()
+
+    jwt_token = jwt.encode({
+        'sub': user.id,
+        'iat': datetime.utcnow(),
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+
+    return redirect(f'{FRONTEND_URL}/login/success?token={jwt_token}')
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username already exists"}), 409
+
+    password_hash = generate_password_hash(password)
+    new_user = User(username=username, password_hash=password_hash)
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({"id": new_user.id, "username": new_user.username}), 201
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    user = User.query.filter_by(username=username).first()
+
+    if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
+        return jsonify({"message": "Invalid credentials"}), 401
+
+    token = jwt.encode({
+        'sub': user.id,
+        'iat': datetime.utcnow(),
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+
+    return jsonify({'token': token})
 
 # --- Template Management API ---
 @app.route('/api/templates', methods=['POST'])
@@ -186,7 +216,8 @@ def create_template():
     if not name or not content:
         return jsonify({"error": "Template name and content are required"}), 400
 
-    template = Template(name=name, content=content) # No user_id for now
+    # Hardcode user_id to 1 for simplicity
+    template = Template(name=name, content=content, user_id=1)
     db.session.add(template)
     db.session.commit()
     return jsonify({
@@ -199,6 +230,7 @@ def create_template():
 
 @app.route('/api/templates', methods=['GET'])
 def get_templates():
+    # Return all templates, not filtered by user
     templates = Template.query.order_by(Template.updated_at.desc()).all()
     return jsonify([{
         "id": t.id,
@@ -214,6 +246,7 @@ def update_template(template_id):
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
+    # Removed permission check
     data = request.get_json()
     name = data.get('name')
     content = data.get('content')
@@ -223,7 +256,7 @@ def update_template(template_id):
     if content:
         template.content = content
     
-    template.updated_at = datetime.utcnow() # Manually update timestamp
+    template.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({
         "id": template.id,
@@ -239,11 +272,10 @@ def delete_template(template_id):
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
+    # Removed permission check
     db.session.delete(template)
     db.session.commit()
     return '', 204
 
 if __name__ == '__main__':
-    # IMPORTANT: use_reloader=False is critical to prevent the server from
-    # restarting when background threads write output files.
     app.run(debug=True, port=5000, host='0.0.0.0', use_reloader=False)

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { AuthProvider } from './context/AuthContext'; // Import AuthProvider
 
 // Material UI Theme imports
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -90,7 +91,9 @@ root.render(
   <React.StrictMode>
     <ThemeProvider theme={lightTheme}>
       <CssBaseline /> {/* Apply baseline CSS */}
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

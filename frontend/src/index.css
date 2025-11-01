@@ -4,6 +4,8 @@
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #fff; /* Set a default white background */
+  color: #000; /* Set a default black text color */
 }
 
 /* Remove the default focus outline in favor of our custom one in App.css */

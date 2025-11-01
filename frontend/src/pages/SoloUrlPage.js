@@ -1,130 +1,71 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FiZap } from 'react-icons/fi';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import api from '../api/api';
 import ResultsDisplay from '../components/ResultsDisplay';
-import axios from 'axios'; // Import axios
+import './SoloUrlPage.css';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001'; // Use 5001 for direct backend access
+// MUI Components
+import { Box, Typography, TextField, Button, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
 
 const SoloUrlPage = () => {
+  const { isAuthenticated } = useAuth();
   const [url, setUrl] = useState('');
   const [language, setLanguage] = useState('en');
-  const [templates, setTemplates] = useState([]); // State for templates
-  const [selectedTemplateId, setSelectedTemplateId] = useState(''); // State for selected template
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   
-  // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('Idle');
 
-  const pollingRef = useRef(null);
-
-  // Fetch templates on component mount
   useEffect(() => {
     const fetchTemplates = async () => {
+      // Since auth is removed from backend, we can fetch templates regardless
       try {
-        const response = await axios.get(`${API_BASE_URL}/api/templates`);
+        const response = await api.get('/api/templates');
         setTemplates(response.data);
-        if (response.data.length > 0) {
-          setSelectedTemplateId(response.data[0].id); // Select the first template by default
-        }
       } catch (err) {
         console.error("Error fetching templates:", err);
-        // Optionally set an error state for the user
+        // Do not show auth-related errors since we removed it
+        // setError("Failed to fetch templates. Please try again."); 
       }
     };
     fetchTemplates();
   }, []);
 
-  // Cleanup interval on component unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, []);
-
-  const pollJobResult = (jobId) => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-    }
-
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/get-job-result/${jobId}`);
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
-          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`);
-        }
-
-        const data = await res.json();
-
-        setStatusMessage(`Job status: ${data.status}`);
-
-        if (data.status === 'success') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setResult(data.data); // The actual result is nested in the 'data' property
-          setError(null);
-        } else if (data.status === 'error') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setError(data.message || 'An unknown error occurred during analysis.');
-          setResult(null);
-        } else if (data.status === 'not_found') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setError(`Job ID ${jobId} not found. The job may have expired or never existed.`);
-          setResult(null);
-        }
-
-      } catch (err) {
-        clearInterval(pollingRef.current);
-        setIsLoading(false);
-        setError(err.message || 'Failed to poll for job results. Check network connection.');
-        setResult(null);
-      }
-    }, 3000); // Poll every 3 seconds
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!url || isLoading) return;
 
-    // Reset state for new submission
     setIsLoading(true);
     setResult(null);
     setError(null);
-    setStatusMessage('Starting analysis...');
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-    }
+    setStatusMessage('Analysis in progress...');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/start-url-summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, language, template_id: selectedTemplateId }), // Pass selected template ID
+      // The backend is now synchronous and returns the full result directly
+      const response = await api.post('/api/start-url-summary', {
+        url,
+        language,
+        template_id: selectedTemplateId,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to start analysis.' }));
-        throw new Error(errorData.message || 'Server returned an error on job start.');
-      }
-
-      const data = await response.json();
       
-      if (data.job_id) {
-        setStatusMessage('Analysis started, waiting for results...');
-        pollJobResult(data.job_id);
+      // Check if the response contains the successful result
+      if (response.data && response.data.status === 'success') {
+        // The simplified backend returns the result nested under a 'result' key
+        setResult(response.data.result);
+        setError(null);
       } else {
-        throw new Error('Server did not return a job ID.');
+        // Handle cases where the backend returns a structured error
+        throw new Error(response.data.error || response.data.message || 'Analysis failed.');
       }
 
     } catch (err) {
-      setError(err.message || 'Failed to start analysis. Check server connection.');
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to start analysis.';
+      setError(errorMsg);
+      setResult(null);
+    } finally {
       setIsLoading(false);
       setStatusMessage('Idle');
     }
@@ -136,71 +77,74 @@ const SoloUrlPage = () => {
   };
 
   return (
-    <div>
-      <header className="page-header">
-        <h2>Analyze a Single YouTube URL</h2>
-        <p>Provide a direct link to a YouTube video for in-depth analysis.</p>
-      </header>
-      <div className="glass-card">
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">YouTube URL*</label>
-            <input
-              type="text"
-              className="form-control"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              required
-              disabled={isLoading}
-            />
-          </div>
-          
-          <div className="form-group">
-            <label className="form-label">Video Language</label>
-            <select
-              className="form-select"
+    <div className="solo-url-page-container">
+      <div className="control-panel">
+        <Box component="form" onSubmit={handleSubmit} className="control-card">
+          <Typography variant="h5" component="h2" gutterBottom>
+            Analyze YouTube URL
+          </Typography>
+          <TextField
+            label="YouTube URL"
+            fullWidth
+            variant="outlined"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=..."
+            required
+            disabled={isLoading}
+            margin="normal"
+          />
+          <FormControl fullWidth margin="normal" disabled={isLoading}>
+            <InputLabel>Language</InputLabel>
+            <Select
               value={language}
+              label="Language"
               onChange={(e) => setLanguage(e.target.value)}
-              disabled={isLoading}
             >
-              <option value="en">English (en)</option>
-              <option value="zh">Chinese (zh)</option>
-            </select>
-          </div>
+              <MenuItem value="en">English (en)</MenuItem>
+              <MenuItem value="zh">Chinese (zh)</MenuItem>
+            </Select>
+          </FormControl>
 
-          {/* Template Selection Dropdown */}
-          {templates.length > 0 && (
-            <div className="form-group">
-              <label className="form-label">Select Template (Optional)</label>
-              <select
-                className="form-select"
-                value={selectedTemplateId}
-                onChange={(e) => setSelectedTemplateId(e.target.value)}
-                disabled={isLoading}
-              >
-                <option value="">-- No Template --</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Always show template selector now that auth is removed */}
+          <FormControl fullWidth margin="normal" disabled={isLoading}>
+            <InputLabel>Template (Optional)</InputLabel>
+            <Select
+              value={selectedTemplateId}
+              label="Template (Optional)"
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+            >
+              <MenuItem value=""><em>-- No Template --</em></MenuItem>
+              {templates.map((template) => (
+                <MenuItem key={template.id} value={template.id}>
+                  {template.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
-          <button type="submit" className="btn btn-primary w-100" disabled={isLoading}>
-            <FiZap /> {isLoading ? statusMessage : 'Start Analysis'}
-          </button>
-        </form>
+          <Button 
+            type="submit" 
+            variant="contained" 
+            size="large" 
+            fullWidth 
+            disabled={isLoading}
+            sx={{ mt: 2, py: 1.5 }}
+          >
+            {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Start Analysis'}
+          </Button>
+        </Box>
       </div>
-
-      <ResultsDisplay 
-        isLoading={isLoading}
-        status={displayStatus} // Pass the simplified status object
-        error={error}
-        result={result}
-      />
+      <div className="results-panel">
+        <Box className="results-card">
+          <ResultsDisplay 
+            isLoading={isLoading}
+            status={displayStatus}
+            error={error}
+            result={result}
+          />
+        </Box>
+      </div>
     </div>
   );
 };

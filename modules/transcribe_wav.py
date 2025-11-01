@@ -4,13 +4,18 @@ from pathlib import Path
 import time
 from dotenv import load_dotenv
 import asyncio
+from pydub import AudioSegment
+import tempfile
 
 # --- Load environment variables ---
 load_dotenv()
 
+# Define chunk length in milliseconds (e.g., 60 seconds)
+CHUNK_LENGTH_MS = 60 * 1000
+
 async def transcribe_audio_single(audio_path: str, output_dir: str, language: str = "zh", model_params: dict = None) -> str | None:
     """
-    Transcribes a single audio file asynchronously using the Gemini API.
+    Transcribes a single audio file asynchronously using the Gemini API by chunking the audio.
 
     Args:
         audio_path: Path to the input audio file (.wav).
@@ -30,20 +35,6 @@ async def transcribe_audio_single(audio_path: str, output_dir: str, language: st
             raise ValueError("GEMINI_API_KEY not found in environment variables.")
         genai.configure(api_key=api_key)
 
-        # --- 2. Read Audio File ---
-        read_start_time = time.time()
-        print(f"Reading audio file: {Path(audio_path).name}...")
-        with open(audio_path, "rb") as f:
-            audio_data = f.read()
-        audio_file_data = {
-            'mime_type': 'audio/wav',
-            'data': audio_data
-        }
-        print(f"Read {Path(audio_path).name} in {time.time() - read_start_time:.2f}s.")
-
-        # --- 3. Generate Content (Transcribe) ---
-        generation_start_time = time.time()
-        print(f"Requesting transcription for {Path(audio_path).name}...")
         model = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
         
         prompt = (
@@ -52,29 +43,63 @@ async def transcribe_audio_single(audio_path: str, output_dir: str, language: st
             "Do not add any comments, summaries, or extra text—only the spoken words."
         ).format(language=language)
 
-        response = await model.generate_content_async(
-            [prompt, audio_file_data],
-            request_options={"timeout": 900} # 15-minute timeout
-        )
+        # --- 2. Load Audio File and Chunk ---
+        print(f"Loading audio file for chunking: {Path(audio_path).name}...")
+        audio = AudioSegment.from_wav(audio_path)
+        total_length_ms = len(audio)
         
-        print(f"Received transcript for {Path(audio_path).name} in {time.time() - generation_start_time:.2f}s.")
+        all_chunk_transcripts = []
+        tasks = []
+        
+        for i in range(0, total_length_ms, CHUNK_LENGTH_MS):
+            chunk_start_ms = i
+            chunk_end_ms = min(i + CHUNK_LENGTH_MS, total_length_ms)
+            chunk = audio[chunk_start_ms:chunk_end_ms]
+            
+            # Create a temporary file for each chunk
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_chunk_file:
+                chunk_file_path = Path(temp_chunk_file.name)
+                chunk.export(chunk_file_path, format="wav")
+            
+            print(f"Transcribing chunk {i // CHUNK_LENGTH_MS + 1} ({(chunk_end_ms - chunk_start_ms) / 1000:.1f}s)...")
+            
+            async def transcribe_chunk(chunk_path, current_prompt):
+                with open(chunk_path, "rb") as f:
+                    chunk_audio_data = f.read()
+                chunk_audio_file_data = {
+                    'mime_type': 'audio/wav',
+                    'data': chunk_audio_data
+                }
+                response = await model.generate_content_async(
+                    [current_prompt, chunk_audio_file_data],
+                    request_options={"timeout": 900}
+                )
+                os.remove(chunk_path) # Clean up temporary chunk file
+                return response.text
 
-        # --- 4. Save Transcript ---
+            tasks.append(transcribe_chunk(chunk_file_path, prompt))
+
+        chunk_results = await asyncio.gather(*tasks)
+        all_chunk_transcripts = [result for result in chunk_results if result] # Filter out any empty results
+        
+        full_transcript = " ".join(all_chunk_transcripts)
+        
+        # --- 3. Save Full Transcript ---
         output_path = Path(output_dir)
         output_path.mkdir(exist_ok=True)
         transcript_file_path = output_path / (Path(audio_path).stem + "_transcript.txt")
         
         with open(transcript_file_path, "w", encoding="utf-8") as f:
-            f.write(response.text)
+            f.write(full_transcript)
             
-        print(f"Saved transcript for {Path(audio_path).name} to: {transcript_file_path}")
+        print(f"Saved full transcript for {Path(audio_path).name} to: {transcript_file_path}")
         
         return str(transcript_file_path)
 
     except Exception as e:
         import traceback
         print(f"An error occurred during async Gemini transcription for {Path(audio_path).name}: {e}")
-        # traceback.print_exc() # This can be noisy in parallel runs
+        traceback.print_exc()
         raise e
 
 if __name__ == '__main__':

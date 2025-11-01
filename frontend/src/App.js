@@ -1,25 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import SoloUrlPage from './pages/SoloUrlPage';
-import TopicSearchPage from './pages/TopicSearchPage';
-import TemplateManagementPage from './pages/TemplateManagementPage'; // Import TemplateManagementPage
+import AuthPage from './pages/AuthPage';
+import LoginSuccessPage from './pages/LoginSuccessPage';
+import ProtectedRoute from './components/ProtectedRoute';
+import TemplateManagerModal from './components/TemplateManagerModal'; // Import the modal
 import InteractiveSvgBackground from './components/InteractiveSvgBackground';
 import './App.css';
 
 function App() {
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+
   return (
     <Router>
       <InteractiveSvgBackground />
       <div className="app-layout">
-        <Sidebar />
+        <Sidebar openTemplateModal={() => setTemplateModalOpen(true)} />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<SoloUrlPage />} />
-            <Route path="/topic-search" element={<TopicSearchPage />} />
-            <Route path="/templates" element={<TemplateManagementPage />} /> {/* Add this route */}
+            {/* The /templates route is no longer needed as it's a modal */}
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="/login/success" element={<LoginSuccessPage />} />
           </Routes>
         </main>
+        <TemplateManagerModal 
+          open={templateModalOpen} 
+          onClose={() => setTemplateModalOpen(false)} 
+        />
       </div>
     </Router>
   );
