@@ -1,6 +1,11 @@
 # Stage 1: Build the React application
 FROM node:18-alpine AS build
 
+# Accept the API base URL as a build argument
+ARG REACT_APP_API_BASE_URL
+# Set it as an environment variable for the build process
+ENV REACT_APP_API_BASE_URL=$REACT_APP_API_BASE_URL
+
 WORKDIR /app
 
 COPY package.json package-lock.json* ./

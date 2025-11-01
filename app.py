@@ -38,7 +38,7 @@ google = oauth.register(
 # --- CORS Configuration ---
 # This is crucial for the frontend (running on localhost:3000) to be able
 # to send requests and receive session cookies from the backend (running on localhost:5000).
-CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+CORS(app, supports_credentials=True, origins=["http://localhost:3000", "https://noledge.happywecan.com"])
 
 # --- Startup Check for Environment Variables ---
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
