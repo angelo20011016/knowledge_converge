@@ -56,3 +56,5 @@ Bash
 docker-compose up -d --build
 跨作業系統相容性
 由於此專案使用Docker和.env檔案進行配置，因此開發和部署過程在不同作業系統（Windows、macOS、Linux）之間是相同的。您無需更改任何命令或程式碼即可在不同的作業系統上工作。
+
+#cloudflared tunnel --config config.yml run vkc-tunnel
