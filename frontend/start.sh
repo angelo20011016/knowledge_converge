@@ -11,5 +11,12 @@ else
   cp /etc/nginx/nginx.dev.conf /etc/nginx/conf.d/default.conf
 fi
 
+# Wait for the backend to be available
+echo "Waiting for backend..."
+while ! nc -z backend 5000; do
+  sleep 1
+done
+echo "Backend is up - starting Nginx"
+
 # Start Nginx in the foreground
 nginx -g 'daemon off;'
