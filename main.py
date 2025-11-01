@@ -299,59 +299,61 @@ async def run_analysis(query: str, process_audio: bool = False, search_mode: str
         with open(urls_json_path, 'r', encoding='utf-8') as f:
             videos_to_process = json.load(f)
 
-        videos_for_audio_download = []
+        # --- Separate videos with and without subtitles ---
+        videos_with_subs = []
+        videos_without_subs = []
+
         for i, video in enumerate(videos_to_process):
             print(f"\n--- Processing video {i+1}/{len(videos_to_process)}: {video['title']} ---")
             lang_prefs = ['en', 'en-US', 'en-GB'] if video.get('query_lang') == 'en' else ['zh-Hant', 'zh-TW', 'zh', 'zh-Hans']
             try:
                 subtitle_path = get_subtitle(video['url'], output_dir=str(subs_dir), lang_prefs=lang_prefs)
                 if subtitle_path:
-                    video['transcript_path'] = clean_vtt_file(subtitle_path, output_dir=str(transcripts_dir))
-                    print(f"Got transcript from official subtitle: {video['transcript_path']}")
-                elif process_audio:
-                    videos_for_audio_download.append(video)
+                    cleaned_path = clean_vtt_file(subtitle_path, output_dir=str(transcripts_dir))
+                    video['transcript_path'] = cleaned_path
+                    videos_with_subs.append(video)
+                    print(f"Got transcript from official subtitle: {cleaned_path}")
+                else:
+                    videos_without_subs.append(video)
             except Exception as e:
                 print(f"Subtitle processing failed for {video['title']}: {e}. Adding to audio queue.")
-                if process_audio:
-                    videos_for_audio_download.append(video)
+                videos_without_subs.append(video)
 
-        if process_audio and videos_for_audio_download:
-            print(f"\n--- Batch downloading audio for {len(videos_for_audio_download)} videos ---")
-            audio_download_tasks = [download_audio(v['url'], str(audio_dir)) for v in videos_for_audio_download]
-            audio_paths = await asyncio.gather(*[asyncio.to_thread(t) for t in audio_download_tasks])
+        # --- Analyze videos with subtitles first ---
+        print(f"\n--- Performing AI Analysis for {len(videos_with_subs)} videos with subtitles ---")
+        for video in videos_with_subs:
+            if not SIMULATE_AI_PROCESSING:
+                analyze_transcript_with_gemini(video['transcript_path'], template_content, user_additional_prompt)
+            else:
+                sim_path = summary_dir / f"{Path(video['transcript_path']).stem}_summary.txt"
+                with open(sim_path, 'w', encoding='utf-8') as f: f.write(f"[Simulated] Analysis for {video['title']}")
 
-            for video, audio_path in zip(videos_for_audio_download, audio_paths):
+        # --- Process videos without subtitles (audio processing) ---
+        if process_audio and videos_without_subs:
+            print(f"\n--- Batch downloading audio for {len(videos_without_subs)} videos ---")
+            # Create callables (functions to be executed) for each download task
+            audio_download_tasks = [
+                lambda url=v['url'], out=str(audio_dir): download_audio(url, out)
+                for v in videos_without_subs
+            ]
+            # Run download tasks in parallel threads
+            audio_paths = await asyncio.gather(*[asyncio.to_thread(task) for task in audio_download_tasks])
+
+            for video, audio_path in zip(videos_without_subs, audio_paths):
                 if audio_path:
                     video['audio_path'] = audio_path
                     downloaded_audio_files.append(audio_path)
                 else:
                     video['audio_download_failed'] = True
 
-            print(f"\n--- Batch transcribing audio for {len(downloaded_audio_files)} files ---")
-            transcription_tasks = []
-            videos_with_audio = [v for v in videos_for_audio_download if v.get('audio_path')]
+            # Transcribe and analyze audio-based transcripts
+            videos_with_audio = [v for v in videos_without_subs if v.get('audio_path')]
+            print(f"\n--- Transcribing and Analyzing {len(videos_with_audio)} audio files ---")
             for video in videos_with_audio:
-                transcription_tasks.append(transcribe_audio_single(
-                    audio_path=video['audio_path'],
-                    output_dir=str(transcripts_dir),
-                    language=video.get('query_lang', 'zh')
-                ))
-            
-            if transcription_tasks:
-                transcript_paths = await asyncio.gather(*transcription_tasks)
-                for video, transcript_path in zip(videos_with_audio, transcript_paths):
-                    if transcript_path:
-                        video['transcript_path'] = transcript_path
-                    else:
-                        video['transcription_failed'] = True
-
-        print("\n--- Performing AI Analysis for all transcripts ---")
-        for video in videos_to_process:
-            if video.get('transcript_path'):
+                video['transcript_path'] = await transcribe_audio_single(video['audio_path'], str(transcripts_dir), video.get('query_lang', 'zh'))
                 if not SIMULATE_AI_PROCESSING:
                     analyze_transcript_with_gemini(video['transcript_path'], template_content, user_additional_prompt)
                 else:
-                    # Simulation logic
                     sim_path = summary_dir / f"{Path(video['transcript_path']).stem}_summary.txt"
                     with open(sim_path, 'w', encoding='utf-8') as f: f.write(f"[Simulated] Analysis for {video['title']}")
 

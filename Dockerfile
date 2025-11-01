@@ -8,12 +8,14 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --upgrade yt-dlp
+# Upgrade pip and install yt-dlp first, as it changes less often
+RUN pip install --no-cache-dir --upgrade pip yt-dlp
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code
 COPY . .

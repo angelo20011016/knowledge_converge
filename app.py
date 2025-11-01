@@ -139,7 +139,8 @@ def start_topic_search():
     )
     thread.start()
     
-    # Remove this line as it is outside of any function and causes a syntax error.
+    # Immediately return the job_id to the client
+    return jsonify({"job_id": job_id}), 202
 
 
 @app.route('/api/get-job-result/<job_id>')
@@ -157,8 +158,13 @@ def get_job_result(job_id):
         
         # Differentiate between single URL and topic search results
         if 'final_content' in result_data and 'individual_summaries' in result_data:
-            # This is a result from `run_analysis` (topic search), which is already in the correct format.
-            # individual_summaries now contains full_transcript
+            # This is a result from `run_analysis` (topic search).
+            # Sort the results to show items with a transcript first.
+            summaries = result_data.get('individual_summaries', [])
+            # The key for sorting is whether the 'full_transcript' field is present and not empty.
+            # `True` values are treated as 1, `False` as 0. Sorting in reverse (desc) puts items with transcripts first.
+            summaries.sort(key=lambda x: bool(x.get('full_transcript')), reverse=True)
+            result_data['individual_summaries'] = summaries
             formatted_result = result_data
         else:
             # This is a result from `run_analysis_for_url` (single URL). Format it.
@@ -246,4 +252,6 @@ def delete_template(template_id):
 if __name__ == '__main__':
     # IMPORTANT: use_reloader=False is critical to prevent the server from
     # restarting when background threads write output files.
+    # The reloader should be disabled to prevent background threads from being
+    # interrupted or restarted when they write files.
     app.run(debug=True, port=5000, host='0.0.0.0', use_reloader=False)

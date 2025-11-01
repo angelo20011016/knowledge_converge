@@ -20,8 +20,9 @@ COPY nginx.dev.conf /etc/nginx/nginx.dev.conf
 COPY nginx.prod.conf /etc/nginx/nginx.prod.conf
 COPY start.sh /start.sh
 
-# Make the startup script executable
-RUN chmod +x /start.sh
+# Convert line endings from CRLF (Windows) to LF (Unix) and make the script executable.
+# This is crucial to prevent "/bin/sh\r: not found" errors when running in a Linux container.
+RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh
 
 # Expose port 80
 EXPOSE 80
