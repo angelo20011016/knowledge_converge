@@ -3,7 +3,7 @@ import { FiZap } from 'react-icons/fi';
 import ResultsDisplay from '../components/ResultsDisplay';
 import axios from 'axios'; // Import axios
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001'; // Use 5001 for direct backend access
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001';
 
 const SoloUrlPage = () => {
   const [url, setUrl] = useState('');
@@ -23,7 +23,7 @@ const SoloUrlPage = () => {
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/api/templates`);
+        const response = await axios.get(`${API_BASE_URL}/api/templates`, { withCredentials: true });
         setTemplates(response.data);
         if (response.data.length > 0) {
           setSelectedTemplateId(response.data[0].id); // Select the first template by default
@@ -52,14 +52,8 @@ const SoloUrlPage = () => {
 
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/get-job-result/${jobId}`);
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
-          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`);
-        }
-
-        const data = await res.json();
+        const res = await axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`, { withCredentials: true });
+        const data = res.data;
 
         setStatusMessage(`Job status: ${data.status}`);
 
@@ -103,18 +97,13 @@ const SoloUrlPage = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/start-url-summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, language, template_id: selectedTemplateId }), // Pass selected template ID
-      });
+      const response = await axios.post(
+        `${API_BASE_URL}/api/start-url-summary`,
+        { url, language, template_id: selectedTemplateId },
+        { withCredentials: true }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to start analysis.' }));
-        throw new Error(errorData.message || 'Server returned an error on job start.');
-      }
-
-      const data = await response.json();
+      const data = response.data;
       
       if (data.job_id) {
         setStatusMessage('Analysis started, waiting for results...');
@@ -124,7 +113,9 @@ const SoloUrlPage = () => {
       }
 
     } catch (err) {
-      setError(err.message || 'Failed to start analysis. Check server connection.');
+      // Axios wraps the response error in err.response.data
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start analysis. Check server connection.';
+      setError(errorMessage);
       setIsLoading(false);
       setStatusMessage('Idle');
     }

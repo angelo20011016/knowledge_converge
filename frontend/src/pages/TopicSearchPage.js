@@ -24,7 +24,7 @@ const TopicSearchPage = () => {
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/api/templates`);
+        const response = await axios.get(`${API_BASE_URL}/api/templates`, { withCredentials: true });
         setTemplates(response.data);
         if (response.data.length > 0) {
           // Set a default, but allow "No Template"
@@ -53,14 +53,8 @@ const TopicSearchPage = () => {
 
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/get-job-result/${jobId}`);
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ message: 'Server returned an error.' }));
-          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`);
-        }
-
-        const data = await res.json();
+        const res = await axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`, { withCredentials: true });
+        const data = res.data;
 
         setStatusMessage(`Job status: ${data.status}`);
 
@@ -84,7 +78,8 @@ const TopicSearchPage = () => {
       } catch (err) {
         clearInterval(pollingRef.current);
         setIsLoading(false);
-        setError(err.message || 'Failed to poll for job results. Check network connection.');
+        const errorMessage = err.response?.data?.message || err.message || 'Failed to poll for job results. Check network connection.';
+        setError(errorMessage);
         setResult(null);
       }
     }, 3000); // Poll every 3 seconds
@@ -103,24 +98,19 @@ const TopicSearchPage = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/start-topic-search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+      const response = await axios.post(
+        `${API_BASE_URL}/api/start-topic-search`,
+        { 
           query, 
           process_audio: true,
           search_mode: searchMode,
           search_language: searchLanguage,
           template_id: selectedTemplateId
-        }),
-      });
+        },
+        { withCredentials: true }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to start analysis.' }));
-        throw new Error(errorData.message || 'Server returned an error on job start.');
-      }
-
-      const data = await response.json();
+      const data = response.data;
       
       if (data.job_id) {
         setStatusMessage('Analysis started, waiting for results...');
@@ -130,7 +120,8 @@ const TopicSearchPage = () => {
       }
 
     } catch (err) {
-      setError(err.message || 'Failed to start analysis. Check server connection.');
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start analysis. Check server connection.';
+      setError(errorMessage);
       setIsLoading(false);
       setStatusMessage('Idle');
     }

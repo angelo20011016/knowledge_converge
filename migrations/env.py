@@ -1,17 +1,6 @@
 import logging
 from logging.config import fileConfig
 
-# Add this block to import the app and models
-import sys
-from pathlib import Path
-
-# Add the project root to the Python path
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
-
-from models import db, Template
-# End of the new block
-
 from flask import current_app
 
 from alembic import context
@@ -48,9 +37,7 @@ def get_engine_url():
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 config.set_main_option('sqlalchemy.url', get_engine_url())
-
-# Use the metadata from the imported db object
-target_metadata = db.metadata
+target_db = current_app.extensions['migrate'].db
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -78,7 +65,7 @@ def run_migrations_offline():
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url, target_metadata=target_metadata, literal_binds=True
+        url=url, target_metadata=get_metadata(), literal_binds=True
     )
 
     with context.begin_transaction():
@@ -103,17 +90,16 @@ def run_migrations_online():
                 directives[:] = []
                 logger.info('No changes in schema detected.')
 
-    # Use the metadata from the imported db object for the online context as well
-    conf_args = {"process_revision_directives": process_revision_directives}
-    if current_app:
-        conf_args.update(current_app.extensions['migrate'].configure_args)
+    conf_args = current_app.extensions['migrate'].configure_args
+    if conf_args.get("process_revision_directives") is None:
+        conf_args["process_revision_directives"] = process_revision_directives
 
     connectable = get_engine()
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata,
+            target_metadata=get_metadata(),
             **conf_args
         )
 

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { FiEdit, FiTrash, FiPlusCircle } from 'react-icons/fi';
 import './TemplateManagementPage.css';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001'; // Use 5001 for direct backend access
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001';
 
 const TemplateManagementPage = () => {
   const [templates, setTemplates] = useState([]);
@@ -19,7 +19,7 @@ const TemplateManagementPage = () => {
 
   const fetchTemplates = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/templates`);
+      const response = await axios.get(`${API_BASE_URL}/api/templates`, { withCredentials: true });
       setTemplates(response.data);
     } catch (err) {
       setError('Failed to fetch templates: ' + (err.response?.data?.error || err.message));
@@ -39,14 +39,14 @@ const TemplateManagementPage = () => {
     try {
       if (editingTemplate) {
         // Update existing template
-        await axios.put(`${API_BASE_URL}/api/templates/${editingTemplate.id}`, 
-          { name: templateName, content: templateContent }
+        await axios.put(`${API_BASE_URL}/api/templates/${editingTemplate.id}`,
+          { name: templateName, content: templateContent }, { withCredentials: true }
         );
         setSuccess('Template updated successfully!');
       } else {
         // Create new template
-        await axios.post(`${API_BASE_URL}/api/templates`, 
-          { name: templateName, content: templateContent }
+        await axios.post(`${API_BASE_URL}/api/templates`,
+          { name: templateName, content: templateContent }, { withCredentials: true }
         );
         setSuccess('Template created successfully!');
       }
@@ -70,7 +70,7 @@ const TemplateManagementPage = () => {
   const handleDelete = async (templateId) => {
     if (window.confirm('Are you sure you want to delete this template?')) {
       try {
-        await axios.delete(`${API_BASE_URL}/api/templates/${templateId}`);
+        await axios.delete(`${API_BASE_URL}/api/templates/${templateId}`, { withCredentials: true });
         setSuccess('Template deleted successfully!');
         fetchTemplates(); // Refresh the list
       } catch (err) {

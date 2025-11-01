@@ -2,8 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import SoloUrlPage from './pages/SoloUrlPage';
-import TopicSearchPage from './pages/TopicSearchPage';
-import TemplateManagementPage from './pages/TemplateManagementPage'; // Import TemplateManagementPage
+import TemplateManagementPage from './pages/TemplateManagementPage';
+import HistoryPage from './pages/HistoryPage';
 import InteractiveSvgBackground from './components/InteractiveSvgBackground';
 import './App.css';
 
@@ -16,8 +16,8 @@ function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<SoloUrlPage />} />
-            <Route path="/topic-search" element={<TopicSearchPage />} />
-            <Route path="/templates" element={<TemplateManagementPage />} /> {/* Add this route */}
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/templates" element={<TemplateManagementPage />} />
           </Routes>
         </main>
       </div>

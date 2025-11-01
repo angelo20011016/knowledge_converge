@@ -23,5 +23,9 @@ COPY . .
 # Make port 5000 available to the world outside this container
 EXPOSE 5000
 
+# Make the entrypoint script executable
+RUN chmod +x entrypoint.sh
+
 # Run app.py when the container launches
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Use the entrypoint script to run migrations and then start the server
+CMD ["./entrypoint.sh"]

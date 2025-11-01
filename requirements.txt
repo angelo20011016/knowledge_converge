@@ -9,3 +9,4 @@ google-generativeai
 gunicorn
 Flask-SQLAlchemy
 Flask-Migrate
+authlib
