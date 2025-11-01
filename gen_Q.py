@@ -3,11 +3,15 @@ import json
 import time
 import google.generativeai as genai
 from tqdm import tqdm
+from dotenv import load_dotenv
 
 # --- 1. 設定區 ---
 
-# 請將 'YOUR_API_KEY' 換成你的 Google AI Studio API 金鑰
-GOOGLE_API_KEY = 'AIzaSyADhGthozeeeu22ojEhO0fWsJ0KmZ6TyV4'
+# 載入 .env 檔案中的環境變數
+load_dotenv()
+
+# 從環境變數讀取 API 金鑰，與專案其他部分保持一致
+GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Markdown 檔案所在的資料夾路徑
 TARGET_DIRECTORY = r'D:\projects\張修修的自由之路_subtitles'
@@ -22,6 +26,11 @@ BATCH_SIZE = 5
 OUTPUT_FILE = 'question.json'
 
 # --- 2. 設定 API ---
+# 檢查 API 金鑰是否存在
+if not GOOGLE_API_KEY:
+    print("錯誤：找不到環境變數 'GEMINI_API_KEY'。請在專案根目錄的 .env 檔案中設定它。")
+    exit()
+
 try:
     genai.configure(api_key=GOOGLE_API_KEY)
 except Exception as e:
