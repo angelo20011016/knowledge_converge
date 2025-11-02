@@ -75,7 +75,7 @@ def get_video_info_from_url(url: str) -> dict | None:
         print(f"Error fetching video info from URL {url} using yt-dlp: {e}", file=sys.stderr)
         return None
 
-async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en', job_id: str | None = None, template_content: str | None = None, user_additional_prompt: str | None = None):
+async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en', job_id: str | None = None, template_content: str | None = None, user_additional_prompt: str | None = None, progress_callback=None):
     """
     Runs the analysis pipeline for a single YouTube URL.
     Accepts an optional title; if not provided, it will be fetched from YouTube.
@@ -85,9 +85,15 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
     start_time = time.time()
     
     audio_path = None  # Define audio_path here to be accessible in finally block
+    
+    def send_progress(percentage, message):
+        if progress_callback:
+            progress_callback(percentage, message)
+        print(f"[Progress for Job {job_id}] {message}")
 
     try:
         # --- 1. Fetch Video Info & Prepare Directories ---
+        send_progress(10, "Fetching video info...")
         video_info = get_video_info_from_url(url)
         if not video_info:
             raise ValueError("Invalid YouTube URL or failed to fetch video info.")
@@ -114,32 +120,32 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
         transcript_path = None
 
         # --- 2. Try to get official subtitles ---
-        print("Checking for official subtitles...")
+        send_progress(20, "Checking for official subtitles...")
         lang_prefs = ['zh-Hant', 'zh-TW', 'zh'] if language == 'zh' else ['en', 'en-US']
         try:
             subtitle_path = get_subtitle(url, output_dir=str(subs_dir), lang_prefs=lang_prefs)
             if subtitle_path:
-                print(f"Official subtitle downloaded: {subtitle_path}")
+                send_progress(30, "Official subtitle found, cleaning...")
                 cleaned_path = clean_vtt_file(subtitle_path, output_dir=str(transcripts_dir))
                 transcript_path = cleaned_path
-                print(f"Official subtitle cleaned and saved to: {transcript_path}")
+                send_progress(40, "Official subtitle ready.")
             else:
-                print("No suitable official subtitle found.")
+                send_progress(30, "No suitable official subtitle found. Proceeding to audio download.")
         except Exception as e:
             print(f"Warning: Subtitle processing failed: {e}. Proceeding to audio download.", file=sys.stderr)
 
         # --- 3. If no transcript from subtitles, process audio ---
         if not transcript_path:
-            print("Downloading and transcribing audio...")
-            audio_path = download_audio(url, output_dir=str(audio_dir))
+            send_progress(40, "Downloading audio (this may take a moment)...")
+            audio_path = download_audio(url, output_dir=str(audio_dir), concurrent_fragments=16)
             if audio_path:
-                print(f"Audio downloaded successfully: {audio_path}")
+                send_progress(60, "Audio downloaded, now transcribing (this is the longest step)...")
                 transcript_path = await transcribe_audio_single(
                     audio_path=audio_path,
                     output_dir=str(transcripts_dir),
                     language=language
                 )
-                print(f"Audio transcribed successfully: {transcript_path}")
+                send_progress(80, "Transcription complete.")
             else:
                 raise Exception("Audio download failed to return a valid path.")
 
@@ -147,7 +153,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
         if not transcript_path:
             raise Exception("Could not generate a transcript from subtitles or audio.")
 
-        print("Analyzing final transcript...")
+        send_progress(90, "Analyzing transcript with AI...")
         summary_content = ""
         final_analysis_path = ""
 
@@ -172,6 +178,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
                 f.write(summary_content)
             print(f"Simulated AI analysis for {transcript_path}")
 
+        send_progress(100, "Analysis complete.")
         end_time = time.time()
         print(f"--- Total Execution Time: {end_time - start_time:.2f} seconds ---")
         

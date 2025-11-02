@@ -1,6 +1,10 @@
-version: '3.8'
-
 services:
+  redis:
+    image: "redis:alpine"
+    container_name: vkc-redis
+    ports:
+      - "6379:6379"
+
   backend:
     build:
       context: .
@@ -8,18 +12,20 @@ services:
     container_name: vkc-backend
     env_file:
       - ./.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "5001:5000"
     volumes:
-      - ./:/app
-    command: sh -c "chmod +x ./entrypoint.sh && ./entrypoint.sh"
+      - ./data:/app/data
+      - ./migrations:/app/migrations
+    depends_on:
+      - redis
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - REACT_APP_API_BASE_URL=${REACT_APP_API_BASE_URL}
     container_name: vkc-frontend
     ports:
       - "3000:80"

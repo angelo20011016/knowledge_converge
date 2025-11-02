@@ -20,12 +20,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application's code
 COPY . .
 
+# Make the entrypoint script executable
+RUN chmod +x /app/entrypoint.sh
+
 # Make port 5000 available to the world outside this container
 EXPOSE 5000
 
-# Make the entrypoint script executable
-RUN chmod +x entrypoint.sh
-
-# Run app.py when the container launches
 # Use the entrypoint script to run migrations and then start the server
-CMD ["./entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]

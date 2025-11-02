@@ -1,5 +1,6 @@
 import React from 'react';
 import SummaryCard from './SummaryCard';
+import { Box, LinearProgress, Typography } from '@mui/material'; // Import Material-UI components
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FiDownload } from 'react-icons/fi'; // Import download icon
@@ -28,9 +29,19 @@ const ResultsDisplay = ({ isLoading, status, error, result }) => {
 
   const renderStatus = () => (
     <div className="status-section glass-card mt-4">
-      <div className="spinner-border" role="status" />
-      <h3>{status.main}</h3>
-      <p>{status.sub}</p>
+      <div className="w-100">
+        <h3 className="mb-2">{status.main}</h3>
+        <p className="mb-3">{status.sub}</p>
+        {/* Display Material-UI LinearProgress with label */}
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ width: '100%', mr: 1 }}>
+            <LinearProgress variant="determinate" value={status.progress} />
+          </Box>
+          <Box sx={{ minWidth: 40 }}>
+            <Typography variant="body2" color="text.secondary">{`${Math.round(status.progress)}%`}</Typography>
+          </Box>
+        </Box>
+      </div>
     </div>
   );
 

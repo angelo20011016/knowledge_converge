@@ -1,16 +1,23 @@
 import asyncio
 import threading
 import uuid
+import hmac
 from pathlib import Path
 import sys
 from flask_cors import CORS
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, redirect, url_for
 import os
 import re # Keep re for URL validation
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from datetime import datetime, timedelta # Import datetime for Template model
 from authlib.integrations.flask_client import OAuth
+from flask_sse import sse
+
+from flask_admin import Admin
+from flask_admin.contrib.sqla import ModelView
 
 # Add the project root to the Python path to import main
 project_root = Path(__file__).parent
@@ -22,6 +29,9 @@ from main import run_analysis_for_url, get_video_info_from_url
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-key-for-dev") # For session management
 app.config['SESSION_COOKIE_NAME'] = 'video_knowledge_session'
+# --- SSE Configuration ---
+app.config["REDIS_URL"] = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+app.register_blueprint(sse, url_prefix='/stream')
 
 # --- OAuth (Google SSO) Configuration ---
 oauth = OAuth(app)
@@ -57,29 +67,93 @@ db.init_app(app)
 
 migrate = Migrate(app, db)
 
+# --- Rate Limiter Configuration ---
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"]
+)
+
+# --- Admin Panel Configuration ---
+class AdminModelView(ModelView):
+    def is_accessible(self):
+        # Check if a user is logged in via session
+        user_id = session.get('user_id')
+        if not user_id:
+            return False
+
+        # Get the required admin Google ID from environment variables
+        admin_google_id = os.environ.get('ADMIN_GOOGLE_ID')
+        if not admin_google_id:
+            print("Warning: ADMIN_GOOGLE_ID is not set. Admin panel is inaccessible.")
+            return False
+
+        # Fetch the user from the database
+        user = User.query.get(user_id)
+        if not user:
+            return False
+
+        # Check if the logged-in user's Google ID matches the admin's Google ID
+        return user.google_id == admin_google_id
+
+    def inaccessible_callback(self, name, **kwargs):
+        # If user is not an admin, redirect them to the Google login page.
+        return redirect(url_for('login'))
+
+class UserAdminView(AdminModelView):
+    # Columns to display in the list view
+    column_list = ['id', 'name', 'email', 'created_at', 'usage_limit']
+    # Exclude certain columns from the edit form to avoid a bug in form generation
+    form_excluded_columns = ['google_id', 'profile_pic', 'created_at', 'jobs', 'templates']
+
+admin = Admin(app, name='Video Knowledge Admin', template_mode='bootstrap4', url='/admin')
+admin.add_view(UserAdminView(User, db.session))
+admin.add_view(AdminModelView(Job, db.session))
+admin.add_view(AdminModelView(Feedback, db.session))
+
 # --- Helper function for the analysis thread ---
-def run_analysis_in_background(job_id, analysis_func, *args, **kwargs):
+def run_analysis_in_background(job_id, analysis_func, url, title, language, template_content, user_additional_prompt):
     """
     Wrapper to run an analysis function, update the JOBS dict, and handle errors.
     """
-    # Each thread needs its own app context to interact with the database
+    # Each thread needs its own app context to interact with the database and SSE
     with app.app_context():
+        def progress_callback(percentage, message):
+            """Publishes progress messages to the SSE stream for this job."""
+            sse.publish({"percentage": percentage, "message": message}, type='progress', channel=job_id)
+
         try:
             job = Job.query.get(job_id)
             if not job:
                 print(f"Job {job_id} not found in database.")
+                progress_callback(f"Error: Job {job_id} not found.")
                 return
             job.status = 'running'
             db.session.commit()
+            progress_callback(5, "Job started, analysis is running...")
 
-            result = asyncio.run(analysis_func(*args, **kwargs))
+            # Pass the callback to the analysis function
+            result = asyncio.run(analysis_func(
+                url=url,
+                title=title,
+                language=language,
+                job_id=job_id,
+                template_content=template_content,
+                user_additional_prompt=user_additional_prompt,
+                progress_callback=progress_callback
+            ))
 
             if result.get("status") == "success":
                 job.status = 'success'
                 job.result = result.get("result")
+                progress_callback(100, "Job completed successfully.")
+                sse.publish({"status": "success"}, type='final', channel=job_id)
             else:
                 job.status = 'error'
                 job.error_message = result.get("message", "An unknown error occurred.")
+                progress_callback(100, f"Job failed: {job.error_message}")
+                sse.publish({"status": "error", "message": job.error_message}, type='final', channel=job_id)
+            
             db.session.commit()
             print(f"Thread finished for job_id: {job_id}, status: {job.status}")
 
@@ -90,6 +164,8 @@ def run_analysis_in_background(job_id, analysis_func, *args, **kwargs):
             job.status = 'error'
             job.error_message = str(e)
             db.session.commit()
+            progress_callback(100, f"A critical error occurred: {e}")
+            sse.publish({"status": "error", "message": str(e)}, type='final', channel=job_id)
 
 
 @app.route('/')
@@ -109,22 +185,6 @@ def start_url_summary():
     template_id = data.get('template_id') # Get template_id
     user_additional_prompt = data.get('user_additional_prompt') # Get user_additional_prompt
 
-    # --- Quota Check ---
-    user_id = session.get('user_id')
-    today = datetime.utcnow().date()
-    
-    if user_id:
-        # Logged-in user: 5 times per day
-        usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
-        if usage_count >= 5:
-            return jsonify({"error": "Daily usage limit of 5 reached for logged-in users."}), 429
-    else:
-        # Anonymous user: 1 time per day per IP
-        ip_address = request.remote_addr
-        usage_count = Job.query.filter(Job.ip_address == ip_address, db.func.date(Job.created_at) == today).count()
-        if usage_count >= 1:
-            return jsonify({"error": "Daily usage limit of 1 reached for anonymous users."}), 429
-
     if not url:
         return jsonify({"error": "URL parameter is missing"}), 400
 
@@ -132,6 +192,26 @@ def start_url_summary():
     url_pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]+')
     if not url_pattern.match(url):
         return jsonify({"error": "Invalid YouTube URL format."}), 400
+
+    # --- Quota Check ---
+    # Moved after URL validation to avoid charging for invalid inputs
+    user_id = session.get('user_id')
+    today = datetime.utcnow().date()
+    
+    if user_id:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found."}), 404
+        user_limit = user.usage_limit
+        usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
+        if usage_count >= user_limit:
+            return jsonify({"error": f"Daily usage limit of {user_limit} reached for logged-in users."}), 429
+    else:
+        # Anonymous user: 1 time per day per IP
+        ip_address = request.remote_addr
+        usage_count = Job.query.filter(Job.ip_address == ip_address, db.func.date(Job.created_at) == today).count()
+        if usage_count >= 1:
+            return jsonify({"error": "Daily usage limit of 1 reached for anonymous users."}), 429
 
     # --- Get Template ---
     template_content = None
@@ -158,10 +238,13 @@ def start_url_summary():
     db.session.add(new_job)
     db.session.commit()
     
-    # Pass the template_content to the analysis function
+    # Pass arguments directly to the background function
     thread = threading.Thread(
         target=run_analysis_in_background,
-        args=(job_id, run_analysis_for_url, url, title, language, job_id, template_content, user_additional_prompt)
+        args=(
+            job_id, run_analysis_for_url,
+            url, title, language, template_content, user_additional_prompt
+        )
     )
     thread.start()
     
@@ -329,9 +412,13 @@ def logout():
 def get_session():
     user_id = session.get('user_id')
     if user_id:
+        user = User.query.get(user_id)
+        if not user:
+            # This should ideally not happen if user_id is in session but user is deleted
+            return jsonify({"logged_in": False}), 404
         today = datetime.utcnow().date()
         usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
-        quota = 5
+        quota = user.usage_limit
         return jsonify({
             "logged_in": True,
             "user": {
@@ -344,9 +431,6 @@ def get_session():
                 "quota": quota
             }
         })
-    else:
-        # For anonymous users, we can't show quota easily without a frontend session
-        return jsonify({"logged_in": False})
 
 @app.route('/api/history')
 def get_history():

@@ -208,3 +208,20 @@ The "Video Knowledge Convergence" project is an intelligent system designed to e
 *   **Temporary File Cleanup:** Implement a mechanism to clean up temporary audio and transcript files after successful processing.
 *   **Scalability:** Consider using asynchronous processing or message queues for long-running tasks.
 *   **UI/UX Refinements:** Further refine the frontend design and user experience.
+
+### Accessing the Admin Panel
+
+The admin panel is protected and accessible only to the designated administrator via Google SSO.
+
+1.  **Set Admin Password:**
+    *   In your `.env` file, add the following line and replace the example ID with your own Google Account ID:
+        ```
+        ADMIN_GOOGLE_ID="107490620158118092089"
+        ```
+    *   You can find your Google ID by logging into a Google service and visiting a site like `https://developers.google.com/people/api/rest/v1/people/get` (click "Execute" for `people/me`). Your ID is the 21-digit number in the `resourceName` field (`people/YOUR_ID`).
+
+2.  **Access the Interface:**
+    *   Open your web browser and navigate to `http://localhost:5001/admin`.
+    *   If you are not logged in, you will be automatically redirected to the Google login page.
+    *   Log in with the Google account whose ID matches the `ADMIN_GOOGLE_ID`.
+    *   After successful login, you will be granted access to the admin panel.

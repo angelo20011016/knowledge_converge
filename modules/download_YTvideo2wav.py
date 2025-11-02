@@ -10,7 +10,7 @@ def sanitize_filename(name: str) -> str:
     """Replaces unsafe characters in a filename with underscores."""
     return re.sub(r'[^\w\d.-]+', '_', name)
 
-def download_audio(url: str, output_dir: str, ffmpeg_path: str = None) -> str | None:
+def download_audio(url: str, output_dir: str, ffmpeg_path: str = None, concurrent_fragments: int = 8) -> str | None:
     """
     Downloads audio from a YouTube URL, converts it to WAV, and saves it.
     Includes retry logic for HTTP 429 errors.
@@ -19,6 +19,7 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None) -> str | 
         url: The YouTube URL to download.
         output_dir: The directory to save the WAV file.
         ffmpeg_path: Optional path to the FFmpeg executable.
+        concurrent_fragments: The number of concurrent fragments to download to speed up the process.
 
     Returns:
         The full path to the saved WAV file, or None if an error occurred.
@@ -32,8 +33,10 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None) -> str | 
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
         }],
-        'quiet': True,
+        'quiet': True, # yt-dlp itself will be quiet, aria2 will show progress
         'no_warnings': True,
+        'external_downloader': 'aria2c',
+        'external_downloader_args': ['-x', '16', '-s', '16', '-k', '1M'],
     }
 
     if ffmpeg_path:

@@ -10,6 +10,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     profile_pic = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    usage_limit = db.Column(db.Integer, nullable=False, default=5) # Daily usage limit
     # Relationships
     jobs = db.relationship('Job', backref='user', lazy=True)
     templates = db.relationship('Template', backref='user', lazy=True)

@@ -16,8 +16,9 @@ const SoloUrlPage = () => {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('Idle');
+  const [progress, setProgress] = useState(0); // Add state for progress percentage
 
-  const pollingRef = useRef(null);
+  const eventSourceRef = useRef(null);
 
   // Fetch templates on component mount
   useEffect(() => {
@@ -36,51 +37,59 @@ const SoloUrlPage = () => {
     fetchTemplates();
   }, []);
 
-  // Cleanup interval on component unmount
+  // Cleanup EventSource on component unmount
   useEffect(() => {
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
     };
   }, []);
 
-  const pollJobResult = (jobId) => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
+  const listenToJobProgress = (jobId) => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
 
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`, { withCredentials: true });
-        const data = res.data;
+    const url = `${API_BASE_URL}/stream?channel=${jobId}`;
+    eventSourceRef.current = new EventSource(url);
 
-        setStatusMessage(`Job status: ${data.status}`);
+    eventSourceRef.current.addEventListener('progress', (event) => {
+      const data = JSON.parse(event.data);
+      setProgress(data.percentage || 0);
+      setStatusMessage(data.message || '');
+    });
 
-        if (data.status === 'success') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setResult(data.data); // The actual result is nested in the 'data' property
-          setError(null);
-        } else if (data.status === 'error') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setError(data.message || 'An unknown error occurred during analysis.');
-          setResult(null);
-        } else if (data.status === 'not_found') {
-          clearInterval(pollingRef.current);
-          setIsLoading(false);
-          setError(`Job ID ${jobId} not found. The job may have expired or never existed.`);
-          setResult(null);
-        }
-
-      } catch (err) {
-        clearInterval(pollingRef.current);
-        setIsLoading(false);
-        setError(err.message || 'Failed to poll for job results. Check network connection.');
+    eventSourceRef.current.addEventListener('final', (event) => {
+      const data = JSON.parse(event.data);
+      setIsLoading(false);
+      if (data.status === 'success') {
+        // Fetch the final result from the standard API endpoint
+        axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`, { withCredentials: true })
+          .then(res => {
+            setResult(res.data.data);
+            setError(null);
+            setStatusMessage('Completed');
+            setProgress(100);
+          })
+          .catch(err => {
+            setError(err.message || 'Failed to fetch final result.');
+            setResult(null);
+          });
+      } else {
+        setError(data.message || 'An unknown error occurred during analysis.');
         setResult(null);
+        setStatusMessage('Error');
       }
-    }, 3000); // Poll every 3 seconds
+      eventSourceRef.current.close();
+    });
+
+    eventSourceRef.current.onerror = (err) => {
+      console.error("EventSource failed:", err);
+      setError('Connection to server lost. Please try again.');
+      setIsLoading(false);
+      eventSourceRef.current.close();
+    };
   };
 
   const handleSubmit = async (e) => {
@@ -91,9 +100,10 @@ const SoloUrlPage = () => {
     setIsLoading(true);
     setResult(null);
     setError(null);
-    setStatusMessage('Starting analysis...');
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
+    setStatusMessage('Submitting job...');
+    setProgress(0);
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
 
     try {
@@ -106,8 +116,8 @@ const SoloUrlPage = () => {
       const data = response.data;
       
       if (data.job_id) {
-        setStatusMessage('Analysis started, waiting for results...');
-        pollJobResult(data.job_id);
+        setStatusMessage('Job submitted, waiting for progress updates...');
+        listenToJobProgress(data.job_id);
       } else {
         throw new Error('Server did not return a job ID.');
       }
@@ -123,7 +133,8 @@ const SoloUrlPage = () => {
 
   const displayStatus = {
       main: isLoading ? 'Analyzing' : (error ? 'Error' : (result ? 'Completed' : 'Idle')),
-      sub: statusMessage
+      sub: statusMessage,
+      progress: progress // Pass progress percentage
   };
 
   return (
