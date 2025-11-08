@@ -29,9 +29,9 @@ from main import run_analysis_for_url, get_video_info_from_url
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-key-for-dev") # For session management
 app.config['SESSION_COOKIE_NAME'] = 'video_knowledge_session'
-# --- SSE Configuration ---
-app.config["REDIS_URL"] = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-app.register_blueprint(sse, url_prefix='/stream')
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
+# --- SSE Configuration (REMOVED) ---
 
 # --- OAuth (Google SSO) Configuration ---
 oauth = OAuth(app)
@@ -94,6 +94,8 @@ class AdminModelView(ModelView):
             return False
 
         # Check if the logged-in user's Google ID matches the admin's Google ID
+        print(f"[Admin Check] DB Google ID: '{user.google_id}' (Type: {type(user.google_id)})")
+        print(f"[Admin Check] ENV Google ID: '{admin_google_id}' (Type: {type(admin_google_id)})")
         return user.google_id == admin_google_id
 
     def inaccessible_callback(self, name, **kwargs):
@@ -115,18 +117,17 @@ admin.add_view(AdminModelView(Feedback, db.session))
 def run_analysis_in_background(job_id, analysis_func, url, title, language, template_content, user_additional_prompt):
     """
     Wrapper to run an analysis function, update the JOBS dict, and handle errors.
+    (SSE progress updates have been disabled and replaced with console logs).
     """
-    # Each thread needs its own app context to interact with the database and SSE
     with app.app_context():
         def progress_callback(percentage, message):
-            """Publishes progress messages to the SSE stream for this job."""
-            sse.publish({"percentage": percentage, "message": message}, type='progress', channel=job_id)
+            """Prints progress messages to the console for this job."""
+            print(f"[Progress-{job_id}] {percentage}%: {message}")
 
         try:
             job = Job.query.get(job_id)
             if not job:
                 print(f"Job {job_id} not found in database.")
-                progress_callback(f"Error: Job {job_id} not found.")
                 return
             job.status = 'running'
             db.session.commit()
@@ -147,12 +148,10 @@ def run_analysis_in_background(job_id, analysis_func, url, title, language, temp
                 job.status = 'success'
                 job.result = result.get("result")
                 progress_callback(100, "Job completed successfully.")
-                sse.publish({"status": "success"}, type='final', channel=job_id)
             else:
                 job.status = 'error'
                 job.error_message = result.get("message", "An unknown error occurred.")
                 progress_callback(100, f"Job failed: {job.error_message}")
-                sse.publish({"status": "error", "message": job.error_message}, type='final', channel=job_id)
             
             db.session.commit()
             print(f"Thread finished for job_id: {job_id}, status: {job.status}")
@@ -165,7 +164,6 @@ def run_analysis_in_background(job_id, analysis_func, url, title, language, temp
             job.error_message = str(e)
             db.session.commit()
             progress_callback(100, f"A critical error occurred: {e}")
-            sse.publish({"status": "error", "message": str(e)}, type='final', channel=job_id)
 
 
 @app.route('/')
@@ -203,13 +201,13 @@ def start_url_summary():
         if not user:
             return jsonify({"error": "User not found."}), 404
         user_limit = user.usage_limit
-        usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
+        usage_count = Job.query.filter(Job.user_id == user_id, Job.status != 'error', db.func.date(Job.created_at) == today).count()
         if usage_count >= user_limit:
             return jsonify({"error": f"Daily usage limit of {user_limit} reached for logged-in users."}), 429
     else:
         # Anonymous user: 1 time per day per IP
         ip_address = request.remote_addr
-        usage_count = Job.query.filter(Job.ip_address == ip_address, db.func.date(Job.created_at) == today).count()
+        usage_count = Job.query.filter(Job.ip_address == ip_address, Job.status != 'error', db.func.date(Job.created_at) == today).count()
         if usage_count >= 1:
             return jsonify({"error": "Daily usage limit of 1 reached for anonymous users."}), 429
 
@@ -251,10 +249,7 @@ def start_url_summary():
     # Immediately return the job_id
     return jsonify({"job_id": job_id}), 202
 
-# The /api/start-topic-search endpoint has been removed as per the improvement plan.
-# If you need to re-enable it, you can uncomment the code block below.
-# @app.route('/api/start-topic-search', methods=['POST'])
-# def start_topic_search(): ... (and the rest of the function)
+# The /api/start-topic-search endpoint has been removed as its implementation was incomplete in the source.
 
 @app.route('/api/get-job-result/<job_id>')
 def get_job_result(job_id):
@@ -367,27 +362,26 @@ def delete_template(template_id):
 def login():
     redirect_uri = os.environ.get('GOOGLE_REDIRECT_URI')
     if not redirect_uri:
-        # This is a critical configuration. Fail fast if it's not set.
-        raise ValueError("GOOGLE_REDIRECT_URI environment variable is not set. It should be the full public URL to the /api/auth endpoint (e.g., http://localhost:5001/api/auth).")
+        raise ValueError("GOOGLE_REDIRECT_URI environment variable is not set.")
     return google.authorize_redirect(redirect_uri)
 
 @app.route('/api/auth')
 def auth():
     try:
         token = google.authorize_access_token()
-        # The user info is inside the 'id_token' in an OIDC flow
-        user_info = token.get('userinfo')
-        if not user_info:
-            raise Exception("Could not retrieve user info from token.")
     except Exception as e:
         print(f"Google Auth Error: {e}")
         return f"Authentication failed. Please try again. Error: {e}", 400
+
+    user_info = token.get('userinfo')
+    if not user_info:
+        return "Could not retrieve user info from token.", 400
 
     # Use 'sub' (Subject) from the OIDC token to find the user
     user = User.query.filter_by(google_id=user_info['sub']).first()
     if not user:
         user = User(
-            google_id=user_info['sub'], # 'sub' is the standard field for user ID in OIDC
+            google_id=user_info['sub'],
             name=user_info['name'],
             email=user_info['email'],
             profile_pic=user_info.get('picture')
@@ -399,7 +393,6 @@ def auth():
     session['user_name'] = user.name
     session['user_pic'] = user.profile_pic
 
-    # Redirect to frontend home page after login
     frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
     return f'<script>window.location.href="{frontend_url}";</script>'
 

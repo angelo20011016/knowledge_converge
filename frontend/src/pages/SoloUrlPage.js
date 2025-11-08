@@ -1,24 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiZap } from 'react-icons/fi';
 import ResultsDisplay from '../components/ResultsDisplay';
-import axios from 'axios'; // Import axios
+import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001';
 
 const SoloUrlPage = () => {
   const [url, setUrl] = useState('');
   const [language, setLanguage] = useState('en');
-  const [templates, setTemplates] = useState([]); // State for templates
-  const [selectedTemplateId, setSelectedTemplateId] = useState(''); // State for selected template
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   
-  // Simplified status management
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('Idle');
-  const [progress, setProgress] = useState(0); // Add state for progress percentage
+  const [progress, setProgress] = useState(0); // Keep for UI consistency, though not updated in real-time
 
-  const eventSourceRef = useRef(null);
+  const intervalRef = useRef(null);
 
   // Fetch templates on component mount
   useEffect(() => {
@@ -27,84 +26,38 @@ const SoloUrlPage = () => {
         const response = await axios.get(`${API_BASE_URL}/api/templates`, { withCredentials: true });
         setTemplates(response.data);
         if (response.data.length > 0) {
-          setSelectedTemplateId(response.data[0].id); // Select the first template by default
+          setSelectedTemplateId(response.data[0].id);
         }
       } catch (err) {
         console.error("Error fetching templates:", err);
-        // Optionally set an error state for the user
       }
     };
     fetchTemplates();
   }, []);
 
-  // Cleanup EventSource on component unmount
+  // Cleanup polling on component unmount
   useEffect(() => {
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
     };
   }, []);
-
-  const listenToJobProgress = (jobId) => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
-    const url = `${API_BASE_URL}/stream?channel=${jobId}`;
-    eventSourceRef.current = new EventSource(url);
-
-    eventSourceRef.current.addEventListener('progress', (event) => {
-      const data = JSON.parse(event.data);
-      setProgress(data.percentage || 0);
-      setStatusMessage(data.message || '');
-    });
-
-    eventSourceRef.current.addEventListener('final', (event) => {
-      const data = JSON.parse(event.data);
-      setIsLoading(false);
-      if (data.status === 'success') {
-        // Fetch the final result from the standard API endpoint
-        axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`, { withCredentials: true })
-          .then(res => {
-            setResult(res.data.data);
-            setError(null);
-            setStatusMessage('Completed');
-            setProgress(100);
-          })
-          .catch(err => {
-            setError(err.message || 'Failed to fetch final result.');
-            setResult(null);
-          });
-      } else {
-        setError(data.message || 'An unknown error occurred during analysis.');
-        setResult(null);
-        setStatusMessage('Error');
-      }
-      eventSourceRef.current.close();
-    });
-
-    eventSourceRef.current.onerror = (err) => {
-      console.error("EventSource failed:", err);
-      setError('Connection to server lost. Please try again.');
-      setIsLoading(false);
-      eventSourceRef.current.close();
-    };
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!url || isLoading) return;
 
-    // Reset state for new submission
+    // Clear any existing polling interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+
     setIsLoading(true);
     setResult(null);
     setError(null);
     setStatusMessage('Submitting job...');
-    setProgress(0);
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
+    setProgress(5); // Set a small initial progress
 
     try {
       const response = await axios.post(
@@ -116,15 +69,43 @@ const SoloUrlPage = () => {
       const data = response.data;
       
       if (data.job_id) {
-        setStatusMessage('Job submitted, waiting for progress updates...');
-        listenToJobProgress(data.job_id);
+        const jobId = data.job_id;
+        setStatusMessage('Job submitted. Periodically checking for result...');
+
+        // Start polling
+        intervalRef.current = setInterval(() => {
+          axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`)
+            .then(res => {
+              const { status, data: resultData, message } = res.data;
+              if (status === 'success') {
+                setResult(resultData);
+                setStatusMessage('Analysis complete!');
+                setProgress(100);
+                setIsLoading(false);
+                clearInterval(intervalRef.current);
+              } else if (status === 'error') {
+                setError(message || 'An unknown error occurred.');
+                setStatusMessage('Job failed.');
+                setIsLoading(false);
+                clearInterval(intervalRef.current);
+              } else {
+                setStatusMessage(`Job status: ${status}`);
+              }
+            })
+            .catch(err => {
+              console.error("Polling error:", err);
+              setError('Failed to get job status.');
+              setIsLoading(false);
+              clearInterval(intervalRef.current);
+            });
+        }, 5000); // Poll every 5 seconds
+
       } else {
         throw new Error('Server did not return a job ID.');
       }
 
     } catch (err) {
-      // Axios wraps the response error in err.response.data
-      const errorMessage = err.response?.data?.error || err.message || 'Failed to start analysis. Check server connection.';
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start analysis.';
       setError(errorMessage);
       setIsLoading(false);
       setStatusMessage('Idle');
@@ -134,7 +115,7 @@ const SoloUrlPage = () => {
   const displayStatus = {
       main: isLoading ? 'Analyzing' : (error ? 'Error' : (result ? 'Completed' : 'Idle')),
       sub: statusMessage,
-      progress: progress // Pass progress percentage
+      progress: progress
   };
 
   return (
@@ -171,7 +152,6 @@ const SoloUrlPage = () => {
             </select>
           </div>
 
-          {/* Template Selection Dropdown */}
           {templates.length > 0 && (
             <div className="form-group">
               <label className="form-label">Select Template (Optional)</label>
@@ -199,7 +179,7 @@ const SoloUrlPage = () => {
 
       <ResultsDisplay 
         isLoading={isLoading}
-        status={displayStatus} // Pass the simplified status object
+        status={displayStatus}
         error={error}
         result={result}
       />
