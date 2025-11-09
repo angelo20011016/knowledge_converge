@@ -29,8 +29,12 @@ from main import run_analysis_for_url, get_video_info_from_url
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-key-for-dev") # For session management
 app.config['SESSION_COOKIE_NAME'] = 'video_knowledge_session'
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
-app.config['SESSION_COOKIE_SECURE'] = True
+
+# Only force secure cookies and SameSite=None in production
+if os.environ.get("ENV_MODE") != "development":
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+    app.config['SESSION_COOKIE_SECURE'] = True
+
 # --- SSE Configuration (REMOVED) ---
 
 # --- OAuth (Google SSO) Configuration ---
@@ -404,26 +408,30 @@ def logout():
 @app.route('/api/session')
 def get_session():
     user_id = session.get('user_id')
-    if user_id:
-        user = User.query.get(user_id)
-        if not user:
-            # This should ideally not happen if user_id is in session but user is deleted
-            return jsonify({"logged_in": False}), 404
-        today = datetime.utcnow().date()
-        usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
-        quota = user.usage_limit
-        return jsonify({
-            "logged_in": True,
-            "user": {
-                "id": user_id,
-                "name": session.get('user_name'),
-                "picture": session.get('user_pic')
-            },
-            "usage": {
-                "used": usage_count,
-                "quota": quota
-            }
-        })
+    if not user_id:
+        return jsonify({"logged_in": False})
+
+    user = User.query.get(user_id)
+    if not user:
+        # This could happen if the user was deleted but the session cookie remains.
+        session.clear() # Clear the invalid session
+        return jsonify({"logged_in": False}), 404
+
+    today = datetime.utcnow().date()
+    usage_count = Job.query.filter(Job.user_id == user_id, db.func.date(Job.created_at) == today).count()
+    quota = user.usage_limit
+    return jsonify({
+        "logged_in": True,
+        "user": {
+            "id": user_id,
+            "name": session.get('user_name'),
+            "picture": session.get('user_pic')
+        },
+        "usage": {
+            "used": usage_count,
+            "quota": quota
+        }
+    })
 
 @app.route('/api/history')
 def get_history():

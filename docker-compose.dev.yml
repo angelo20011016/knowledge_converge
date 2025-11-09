@@ -1,0 +1,14 @@
+services:
+  backend:
+    environment:
+      ENV_MODE: development
+      FRONTEND_URL: http://localhost:3000
+      GOOGLE_REDIRECT_URI: http://localhost:5001/api/auth
+    build:
+      args:
+        REACT_APP_API_BASE_URL: http://localhost:5001
+
+  frontend:
+    build:
+      args:
+        REACT_APP_API_BASE_URL: http://localhost:5001
