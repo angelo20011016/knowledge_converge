@@ -1,0 +1,4 @@
+# Ignore dependencies and build artifacts
+node_modules
+build
+.DS_Store

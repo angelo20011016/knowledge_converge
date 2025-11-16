@@ -1,7 +1,9 @@
 import asyncio
+import logging
 import threading
 import uuid
 import hmac
+import time
 from pathlib import Path
 import sys
 from flask_cors import CORS
@@ -27,6 +29,11 @@ sys.path.append(str(project_root))
 from main import run_analysis_for_url, get_video_info_from_url
 
 app = Flask(__name__)
+
+# --- Logging Configuration ---
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-key-for-dev") # For session management
 app.config['SESSION_COOKIE_NAME'] = 'video_knowledge_session'
 
@@ -89,7 +96,7 @@ class AdminModelView(ModelView):
         # Get the required admin Google ID from environment variables
         admin_google_id = os.environ.get('ADMIN_GOOGLE_ID')
         if not admin_google_id:
-            print("Warning: ADMIN_GOOGLE_ID is not set. Admin panel is inaccessible.")
+            app.logger.warning("ADMIN_GOOGLE_ID is not set. Admin panel is inaccessible.")
             return False
 
         # Fetch the user from the database
@@ -98,8 +105,8 @@ class AdminModelView(ModelView):
             return False
 
         # Check if the logged-in user's Google ID matches the admin's Google ID
-        print(f"[Admin Check] DB Google ID: '{user.google_id}' (Type: {type(user.google_id)})")
-        print(f"[Admin Check] ENV Google ID: '{admin_google_id}' (Type: {type(admin_google_id)})")
+        app.logger.debug(f"[Admin Check] DB Google ID: '{user.google_id}'")
+        app.logger.debug(f"[Admin Check] ENV Google ID: '{admin_google_id}'")
         return user.google_id == admin_google_id
 
     def inaccessible_callback(self, name, **kwargs):
@@ -121,17 +128,22 @@ admin.add_view(AdminModelView(Feedback, db.session))
 def run_analysis_in_background(job_id, analysis_func, url, title, language, template_content, user_additional_prompt):
     """
     Wrapper to run an analysis function, update the JOBS dict, and handle errors.
-    (SSE progress updates have been disabled and replaced with console logs).
     """
     with app.app_context():
         def progress_callback(percentage, message):
-            """Prints progress messages to the console for this job."""
-            print(f"[Progress-{job_id}] {percentage}%: {message}")
+            """Logs progress and updates the database for this job."""
+            app.logger.info(f"[Progress-{job_id}] {percentage}%: {message}")
+            job = Job.query.get(job_id)
+            if job:
+                job.progress_percentage = percentage
+                job.progress_message = message
+                db.session.commit()
 
         try:
+            start_time = time.time() # Record start time
             job = Job.query.get(job_id)
             if not job:
-                print(f"Job {job_id} not found in database.")
+                app.logger.error(f"Job {job_id} not found in database during background execution.")
                 return
             job.status = 'running'
             db.session.commit()
@@ -156,18 +168,29 @@ def run_analysis_in_background(job_id, analysis_func, url, title, language, temp
                 job.status = 'error'
                 job.error_message = result.get("message", "An unknown error occurred.")
                 progress_callback(100, f"Job failed: {job.error_message}")
-            
+
+            # Calculate and store processing time
+            end_time = time.time()
+            job.processing_time_seconds = round(end_time - start_time, 2)
+
             db.session.commit()
-            print(f"Thread finished for job_id: {job_id}, status: {job.status}")
+            app.logger.info(f"Thread finished for job_id: {job_id}, status: {job.status}")
 
         except Exception as e:
-            import traceback
-            print(f"An unhandled exception occurred in thread for job {job_id}: {e}")
-            traceback.print_exc()
-            job.status = 'error'
-            job.error_message = str(e)
-            db.session.commit()
-            progress_callback(100, f"A critical error occurred: {e}")
+            app.logger.exception(f"An unhandled exception occurred in thread for job {job_id}: {e}")
+            job = Job.query.get(job_id) # Re-fetch job to be safe
+            if job:
+                job.status = 'error'
+                job.error_message = str(e)
+                
+                # Also record time in case of exception
+                end_time = time.time()
+                # Check if start_time was defined
+                if 'start_time' in locals():
+                    job.processing_time_seconds = round(end_time - start_time, 2)
+                
+                db.session.commit()
+                progress_callback(100, f"A critical error occurred: {e}")
 
 
 @app.route('/')
@@ -240,6 +263,7 @@ def start_url_summary():
     db.session.add(new_job)
     db.session.commit()
     
+    app.logger.info(f"Starting background job {job_id} for URL: {url}")
     # Pass arguments directly to the background function
     thread = threading.Thread(
         target=run_analysis_in_background,
@@ -275,7 +299,12 @@ def get_job_result(job_id):
         }
         return jsonify({"status": "success", "data": formatted_result})
     else:
-        return jsonify({"status": job.status, "message": job.error_message})
+        return jsonify({
+            "status": job.status,
+            "message": job.error_message,
+            "progress_percentage": job.progress_percentage,
+            "progress_message": job.progress_message
+        })
 
 # --- Template Management API ---
 @app.route('/api/templates', methods=['POST'])
@@ -374,7 +403,7 @@ def auth():
     try:
         token = google.authorize_access_token()
     except Exception as e:
-        print(f"Google Auth Error: {e}")
+        app.logger.error(f"Google Auth Error: {e}")
         return f"Authentication failed. Please try again. Error: {e}", 400
 
     user_info = token.get('userinfo')
@@ -392,10 +421,12 @@ def auth():
         )
         db.session.add(user)
         db.session.commit()
+        app.logger.info(f"New user created: {user.email} (ID: {user.id})")
 
     session['user_id'] = user.id
     session['user_name'] = user.name
     session['user_pic'] = user.profile_pic
+    app.logger.info(f"User logged in: {user.email} (ID: {user.id})")
 
     frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
     return f'<script>window.location.href="{frontend_url}";</script>'

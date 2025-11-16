@@ -1,12 +1,21 @@
 # Docker build context ignore rules
 
 # Ignore Git directory
-.git
+.git/
 
-# Ignore Python virtual environment
-venv
-__pycache__
+# Ignore Python virtual environments
+venv/
+venv_test/
+__pycache__/
 *.pyc
+
+# Ignore database files
+data/
+project.db
+*.db
+
+# Ignore output files
+output/
 
 # Ignore frontend node_modules and build artifacts
 frontend/node_modules

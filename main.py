@@ -3,10 +3,13 @@ import os
 import sys
 import time
 import asyncio
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 import yt_dlp
 import re
+
+logger = logging.getLogger(__name__)
 
 # --- Configuration for AI Processing ---
 # Set to True to simulate AI processing without making actual API calls.
@@ -37,20 +40,20 @@ from analyze_transcript_with_gemini import analyze_transcript_with_gemini
 
 async def translate_query(query: str) -> str:
     if all(ord(c) < 128 for c in query):
-        print(f"Query '{query}' appears to be English, skipping translation.")
+        logger.info(f"Query '{query}' appears to be English, skipping translation.")
         return query
     try:
-        translator = Translator()
         # Lazy import to avoid issues with dependencies on startup
         from googletrans import Translator, LANGUAGES
+        translator = Translator()
         detection = translator.detect(query)
         source_lang = detection.lang
         # Force source language to Chinese for better accuracy
         translated = translator.translate(query, src='zh-TW', dest='en')
-        print(f"Translated '{query}' from {LANGUAGES.get(source_lang, 'Unknown')} to English: '{translated.text}'")
+        logger.info(f"Translated '{query}' from {LANGUAGES.get(source_lang, 'Unknown')} to English: '{translated.text}'")
         return translated.text
     except Exception as e:
-        print(f"Translation failed: {e}. Using original query.")
+        logger.warning(f"Translation failed: {e}. Using original query.")
         return query
 
 import yt_dlp
@@ -69,10 +72,10 @@ def get_video_info_from_url(url: str) -> dict | None:
         
         # Create a safe folder name from the title
         safe_folder_name = "".join(c for c in title if c.isalnum() or c in (' ', '_')).rstrip()
-        print(f"Fetched video info: ID='{video_id}', Title='{title}'")
+        logger.info(f"Fetched video info: ID='{video_id}', Title='{title}'")
         return {"video_id": video_id, "title": title, "safe_folder_name": safe_folder_name}
     except Exception as e:
-        print(f"Error fetching video info from URL {url} using yt-dlp: {e}", file=sys.stderr)
+        logger.error(f"Error fetching video info from URL {url} using yt-dlp: {e}")
         return None
 
 async def run_analysis_for_url(url: str, title: str | None = None, language: str = 'en', job_id: str | None = None, template_content: str | None = None, user_additional_prompt: str | None = None, progress_callback=None):
@@ -81,7 +84,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
     Accepts an optional title; if not provided, it will be fetched from YouTube.
     Returns a dictionary with status and result.
     """
-    print(f"--- run_analysis_for_url: START for job {job_id} ({url}) ---")
+    logger.info(f"--- run_analysis_for_url: START for job {job_id} ({url}) ---")
     start_time = time.time()
     
     audio_path = None  # Define audio_path here to be accessible in finally block
@@ -89,7 +92,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
     def send_progress(percentage, message):
         if progress_callback:
             progress_callback(percentage, message)
-        print(f"[Progress for Job {job_id}] {message}")
+        logger.info(f"[Progress for Job {job_id}] {message}")
 
     try:
         # --- 1. Fetch Video Info & Prepare Directories ---
@@ -132,7 +135,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
             else:
                 send_progress(30, "No suitable official subtitle found. Proceeding to audio download.")
         except Exception as e:
-            print(f"Warning: Subtitle processing failed: {e}. Proceeding to audio download.", file=sys.stderr)
+            logger.warning(f"Subtitle processing failed: {e}. Proceeding to audio download.")
 
         # --- 3. If no transcript from subtitles, process audio ---
         if not transcript_path:
@@ -176,11 +179,11 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
             summary_content = f"[Simulated] Analysis for {video_title}"
             with open(final_analysis_path, 'w', encoding='utf-8') as f:
                 f.write(summary_content)
-            print(f"Simulated AI analysis for {transcript_path}")
+            logger.info(f"Simulated AI analysis for {transcript_path}")
 
         send_progress(100, "Analysis complete.")
         end_time = time.time()
-        print(f"--- Total Execution Time: {end_time - start_time:.2f} seconds ---")
+        logger.info(f"--- Total Execution Time: {end_time - start_time:.2f} seconds ---")
         
         return {
             "status": "success",
@@ -194,9 +197,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
         }
 
     except Exception as e:
-        import traceback
-        print(f"An error occurred in run_analysis_for_url for job {job_id}: {e}", file=sys.stderr)
-        traceback.print_exc()
+        logger.exception(f"An error occurred in run_analysis_for_url for job {job_id}: {e}")
         return {
             "status": "error",
             "message": str(e)
@@ -204,7 +205,7 @@ async def run_analysis_for_url(url: str, title: str | None = None, language: str
     finally:
         if audio_path and os.path.exists(audio_path):
             try:
-                print(f"Cleaning up audio file: {audio_path}")
+                logger.info(f"Cleaning up audio file: {audio_path}")
                 os.remove(audio_path)
             except OSError as e:
-                print(f"Error removing audio file {audio_path}: {e}", file=sys.stderr)
+                logger.error(f"Error removing audio file {audio_path}: {e}")

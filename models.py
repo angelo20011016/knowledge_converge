@@ -20,6 +20,9 @@ class Job(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Nullable for anonymous users
     ip_address = db.Column(db.String(45), nullable=True) # For anonymous users
     status = db.Column(db.String(20), nullable=False, default='starting')
+    progress_percentage = db.Column(db.Integer, default=0)
+    progress_message = db.Column(db.String(255), nullable=True)
+    processing_time_seconds = db.Column(db.Float, nullable=True)
     result = db.Column(db.JSON, nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     video_title = db.Column(db.String(255), nullable=True)

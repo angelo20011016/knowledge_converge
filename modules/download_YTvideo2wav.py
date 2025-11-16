@@ -4,7 +4,10 @@ from pathlib import Path
 import re
 import sys
 import time
+import logging
 from yt_dlp import utils
+
+logger = logging.getLogger(__name__)
 
 def sanitize_filename(name: str) -> str:
     """Replaces unsafe characters in a filename with underscores."""
@@ -59,7 +62,7 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None, concurren
                         wav_filepath = str(f)
                         break
                     if not os.path.exists(wav_filepath):
-                        print(f"Error: Converted WAV file not found.", file=sys.stderr)
+                        logger.error(f"Error: Converted WAV file not found for {url}.")
                         return None
 
                 safe_name = sanitize_filename(Path(wav_filepath).name)
@@ -70,44 +73,44 @@ def download_audio(url: str, output_dir: str, ffmpeg_path: str = None, concurren
                 try:
                     os.replace(wav_filepath, safe_filepath)
                 except Exception as rename_e:
-                    print(f"Warning: Could not rename {wav_filepath} to {safe_filepath}: {rename_e}", file=sys.stderr)
+                    logger.warning(f"Could not rename {wav_filepath} to {safe_filepath}: {rename_e}")
                     # If rename fails, try to copy and delete original, or just use original path
                     # For now, let's assume os.replace is robust enough.
                     # If it still fails, the original wav_filepath might be valid.
                     safe_filepath = wav_filepath # Fallback to original path if rename fails
 
                 if os.path.getsize(safe_filepath) < 1024: # 1 KB threshold
-                    print(f"Warning: Audio file may be empty: {safe_filepath}", file=sys.stderr)
+                    logger.warning(f"Audio file may be empty: {safe_filepath}")
                 
                 return safe_filepath
 
         except utils.DownloadError as e:
             if "HTTP Error 429" in str(e) and attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                print(f"Warning: Download failed with HTTP 429. Retrying in {delay} seconds...")
+                logger.warning(f"Download failed with HTTP 429. Retrying in {delay} seconds...")
                 time.sleep(delay)
             else:
-                print(f"Error downloading or converting audio for {url}: {e}", file=sys.stderr)
+                logger.error(f"Error downloading or converting audio for {url}: {e}")
                 raise e
         except Exception as e:
-            print(f"An unexpected error occurred in download_audio: {e}", file=sys.stderr)
+            logger.exception(f"An unexpected error occurred in download_audio for {url}.")
             raise e
             
     return None
 
 if __name__ == '__main__':
     test_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    print(f"Testing audio download for URL: {test_url}")
+    logger.info(f"Testing audio download for URL: {test_url}")
     
     downloaded_file = download_audio(test_url, output_dir="temp_audio")
     
     if downloaded_file:
-        print(f"Successfully downloaded audio to: {downloaded_file}")
+        logger.info(f"Successfully downloaded audio to: {downloaded_file}")
         try:
             os.remove(downloaded_file)
             os.rmdir("temp_audio")
-            print("Cleaned up temporary files.")
+            logger.info("Cleaned up temporary files.")
         except OSError as e:
-            print(f"Error during cleanup: {e}", file=sys.stderr)
+            logger.error(f"Error during cleanup: {e}")
     else:
-        print("Failed to download audio.")
+        logger.error("Failed to download audio.")

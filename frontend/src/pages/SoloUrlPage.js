@@ -15,9 +15,16 @@ const SoloUrlPage = () => {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('Idle');
-  const [progress, setProgress] = useState(0); // Keep for UI consistency, though not updated in real-time
+  const [progress, setProgress] = useState(0);
 
   const intervalRef = useRef(null);
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   // Fetch templates on component mount
   useEffect(() => {
@@ -44,11 +51,17 @@ const SoloUrlPage = () => {
     };
   }, []);
 
+  // Helper to show notifications
+  const showNotification = (title, options) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, options);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!url || isLoading) return;
 
-    // Clear any existing polling interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
@@ -57,7 +70,7 @@ const SoloUrlPage = () => {
     setResult(null);
     setError(null);
     setStatusMessage('Submitting job...');
-    setProgress(5); // Set a small initial progress
+    setProgress(5);
 
     try {
       const response = await axios.post(
@@ -70,26 +83,31 @@ const SoloUrlPage = () => {
       
       if (data.job_id) {
         const jobId = data.job_id;
-        setStatusMessage('Job submitted. Periodically checking for result...');
+        setStatusMessage('Job submitted. Waiting for progress...');
 
-        // Start polling
         intervalRef.current = setInterval(() => {
           axios.get(`${API_BASE_URL}/api/get-job-result/${jobId}`)
             .then(res => {
-              const { status, data: resultData, message } = res.data;
+              const { status, data: resultData, message, progress_percentage, progress_message } = res.data;
+              
               if (status === 'success') {
                 setResult(resultData);
                 setStatusMessage('Analysis complete!');
                 setProgress(100);
                 setIsLoading(false);
                 clearInterval(intervalRef.current);
+                showNotification('Analysis Complete!', { body: `Successfully analyzed: ${resultData.title}` });
               } else if (status === 'error') {
                 setError(message || 'An unknown error occurred.');
                 setStatusMessage('Job failed.');
+                setProgress(100); // Mark as complete even on error
                 setIsLoading(false);
                 clearInterval(intervalRef.current);
+                showNotification('Analysis Failed', { body: message || 'An unknown error occurred.' });
               } else {
-                setStatusMessage(`Job status: ${status}`);
+                // Update progress and status message while running
+                setProgress(progress_percentage || progress);
+                setStatusMessage(progress_message || `Job status: ${status}`);
               }
             })
             .catch(err => {
@@ -98,7 +116,7 @@ const SoloUrlPage = () => {
               setIsLoading(false);
               clearInterval(intervalRef.current);
             });
-        }, 5000); // Poll every 5 seconds
+        }, 3000); // Poll every 3 seconds for better responsiveness
 
       } else {
         throw new Error('Server did not return a job ID.');
@@ -109,6 +127,7 @@ const SoloUrlPage = () => {
       setError(errorMessage);
       setIsLoading(false);
       setStatusMessage('Idle');
+      setProgress(0);
     }
   };
 

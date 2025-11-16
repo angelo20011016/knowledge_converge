@@ -13,9 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # Install any needed packages specified in requirements.txt
-# Upgrade pip and install yt-dlp first, as it changes less often
-RUN pip install --no-cache-dir --upgrade pip yt-dlp
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip and install uv and yt-dlp first, as they change less often
+RUN pip install --no-cache-dir --upgrade pip uv yt-dlp
+RUN uv pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code
 COPY . .

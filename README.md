@@ -124,7 +124,125 @@ The "Video Knowledge Convergence" project is an intelligent system designed to e
 
 1.  **安裝 Python 依賴：**
     ```bash
-    pip install -r requirements.txt # (假設 requirements.txt 存在或自行創建)
+    # Video Knowledge Convergence Project
+
+## Project Overview
+
+The "Video Knowledge Convergence" project is an intelligent system designed to extract and synthesize knowledge from YouTube videos based on user-defined queries. It automates the entire pipeline from video discovery to AI-powered content analysis and summarization, providing users with refined, actionable information.
+
+## Features
+
+*   **Intelligent Video Search:** Finds relevant YouTube videos based on a user query, filtering by criteria like video length and sorting by view count.
+*   **Multi-source Transcription:** Prioritizes downloading official subtitles (Closed Captions) for accuracy. If not available, it downloads video audio and performs Speech-to-Text (STT) transcription.
+*   **AI-Powered Content Analysis:** Utilizes the Google Gemini AI model to analyze individual video transcripts, extracting useful information.
+*   **Real-time Progress Tracking & Notifications:** Provides live updates on the analysis progress directly within the frontend user interface, and sends browser notifications upon job completion.
+*   **User-Friendly Interface:** A React-based frontend with a clean, elegant design (inspired by "notebook lm") for easy interaction.
+*   **Robust Logging:** Utilizes Python's standard `logging` module for structured and manageable application logs.
+*   **Optimized Docker Builds:** Efficient Docker setup ensures fast and reproducible builds.
+
+## Project Structure
+
+```
+.
+├───.gitignore
+├───app.py                  # Flask backend application, handles API requests and serves status.
+├───main.py                 # Core orchestration logic (run_analysis function).
+├───README.md               # This file.
+├───audio_multi_process/    # Modules for audio processing.
+│   ├───audio_spliter.py    # (Currently not used in main.py) Splits audio files.
+│   └───parallel_transcriber.py # (Currently not used in main.py) Parallel transcription.
+├───frontend/               # React frontend application.
+│   ├───public/             # Static assets.
+│   └───src/                # React components (App.js is main).
+├───modules/                # Core Python utility modules.
+│   ├───cleantranscription.py # Cleans raw transcript text.
+│   ├───download_YTvideo2wav.py # Downloads YouTube video audio to WAV.
+│   ├───transcribe_wav.py   # Single-threaded audio transcription (faster-whisper).
+│   ├───yt_get_cc.py        # Downloads YouTube official subtitles.
+│   └───yt_transcription_re.py # Cleans VTT字幕檔案。
+├───Question/               # 查詢特定結果的輸出目錄。
+├───step1_get_10url/        # 影片網址獲取模組。
+│   └───get_top_10_watched.py # 使用 YouTube API 獲取熱門影片。
+└───step3_AI_summary/       # AI 分析和摘要模組。
+    ├───analyze_transcript_with_gemini.py # 使用 Gemini 分析單個轉錄稿。
+    ├───combine_and_extract_final_info.py # 合併分析結果並提取最終資訊。
+    └───combine_transcripts.py # (目前未在 main.py 中使用) 合併多個轉錄稿。
+```
+
+## Project Flow Diagram
+
+詳細的專案流程圖請參考 [docs/flowchart.md](docs/flowchart.md)。
+
+## Setup and Running
+
+### 1. 環境變數設定 (.env)
+
+在專案根目錄下創建一個 `.env` 檔案，並填入必要的環境變數。您可以參考 `.env.example` 檔案來了解需要設定哪些變數。
+
+**範例 `.env` 檔案內容：**
+```
+FLASK_SECRET_KEY=your_super_secret_key_here
+GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:5001/api/auth
+FRONTEND_URL=http://localhost:3000
+REACT_APP_API_BASE_URL=http://localhost:5001
+GEMINI_API_KEY=your_gemini_api_key_here
+ADMIN_GOOGLE_ID=your_admin_google_id_here
+```
+**重要提示：** `.env` 檔案不應提交到版本控制系統中。
+
+### 2. 前置條件
+
+*   **Docker Desktop**：確保您的系統已安裝並運行 Docker Desktop。
+
+### 3. 運行專案
+
+在專案根目錄下，執行以下指令來建置並啟動所有服務：
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+這個指令會：
+*   根據 `Dockerfile` 建置後端和前端的 Docker 映像。
+*   啟動後端 API 服務 (Python/Flask)。
+*   啟動前端網頁服務 (React/Nginx)。
+*   執行資料庫遷移。
+
+### 4. 訪問應用程式
+
+*   **前端應用**：在瀏覽器中打開 `http://localhost:3000`。
+*   **後端 API**：後端 API 服務運行在 `http://localhost:5001`。
+*   **管理面板**：訪問 `http://localhost:5001/admin`。
+
+### 5. 使用方法
+
+1.  確保所有服務都在運行。
+2.  在瀏覽器中打開 `http://localhost:3000`。
+3.  在輸入框中輸入 YouTube 影片 URL，然後點擊「Start Analysis」。
+4.  觀察即時狀態更新和最終提取的知識。您也會收到任務完成的瀏覽器通知。
+
+## 管理面板
+
+管理面板受保護，僅限指定管理員透過 Google SSO 存取。
+
+1.  **設定管理員 ID**：
+    *   在您的 `.env` 檔案中，設定 `ADMIN_GOOGLE_ID` 為您的 Google 帳戶 ID。
+    *   您可以登入 Google 服務後，訪問 `https://developers.google.com/people/api/rest/v1/people/get` (點擊 "Execute" 執行 `people/me`) 來找到您的 Google ID。您的 ID 是 `resourceName` 欄位中的 21 位數字 (`people/您的_ID`)。
+
+2.  **存取介面**：
+    *   在瀏覽器中打開 `http://localhost:5001/admin`。
+    *   如果您未登入，將自動跳轉到 Google 登入頁面。
+    *   使用與 `ADMIN_GOOGLE_ID` 匹配的 Google 帳戶登入。
+    *   成功登入後，您將獲得管理面板的存取權。
+
+## 目前已知問題 / 未來改進
+
+*   **大型音訊檔案處理：** 目前的 `transcribe_wav.py` 會將整個音訊檔案載入到記憶體中，這可能導致高磁碟 I/O 並使非常長的影片崩潰。需要一個更穩健的解決方案，涉及音訊分割和基於塊的轉錄（類似於 `parallel_transcriber.py` 但不一次性載入整個音訊）。
+*   **可擴展性：** 考慮使用非同步處理或訊息佇列來處理長時間運行的任務。
+*   **UI/UX 優化：** 進一步優化前端設計和使用者體驗。
+*   **後端測試**：為後端核心邏輯增加單元測試和整合測試，以確保穩定性和可維護性。
+*   **Rate Limiter 儲存**：對於生產環境，`flask-limiter` 應配置一個共享的儲存後端（如 Redis），以確保在多個 worker 下限速的準確性。
     # 如果沒有 requirements.txt，請手動安裝：
     # pip install Flask Flask-Cors yt-dlp google-api-python-client isodate python-dotenv google-generativeai faster-whisper librosa soundfile
     ```
